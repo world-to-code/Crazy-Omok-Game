@@ -6,7 +6,7 @@ import Countdown from "../components/Countdown";
 import Chat from "../components/Chat";
 import { ensureFlickWasm, predictPath } from "../net/flickWasm";
 
-const VIEW_SPAN = 1300; // 화면에 보이는 월드 폭(맵이 넓어 카메라가 따라감)
+const VIEW_SPAN = 1050; // 화면에 보이는 월드 폭(맵이 넓어 카메라가 따라감)
 
 export default function FlickGame() {
   const { state, send, leave, setScreen } = useGame();
@@ -133,7 +133,7 @@ function MarbleList({
 }
 
 function Arena() {
-  const { state, send } = useGame();
+  const { state, send, applyFlick } = useGame();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState(560);
@@ -159,7 +159,7 @@ function Arena() {
   const animRef = useRef<Record<string, [number, number]> | null>(null);
   const camRef = useRef<{ x: number; y: number } | null>(null);
   const shakeRef = useRef<{ until: number; mag: number }>({ until: 0, mag: 0 });
-  const prevHpRef = useRef<Record<string, number>>({});
+  const particlesRef = useRef<{ x: number; y: number; kind: string; t0: number }[]>([]);
   const lastAimSentRef = useRef(0);
 
   useEffect(() => {
@@ -185,37 +185,41 @@ function Arena() {
     };
   }, []);
 
-  // 발사 결과 재생 + 피격 흔들림
+  // 발사 결과 재생: 타임라인을 따라 알을 움직이고, 충돌 이벤트 시점에 이펙트+흔들림.
+  // 재생이 끝나면(돌이 완전히 멈춘 뒤) 다음 차례를 적용(applyFlick).
   useEffect(() => {
     const fr = state.flickResolve;
     if (!fr) return;
-    // 피해 감지 → 흔들림
-    let myDrop = 0;
-    let anyDrop = 0;
-    for (const m of state.marbles) {
-      const prev = prevHpRef.current[m.owner];
-      if (prev != null && m.hp < prev) {
-        const d = prev - m.hp;
-        anyDrop = Math.max(anyDrop, d);
-        if (m.owner === myId) myDrop = Math.max(myDrop, d);
-      }
-    }
-    // 재생 시작
-    const ids = fr.ids;
-    const timeline = fr.timeline;
-    const start = performance.now();
+    const { ids, timeline } = fr;
+    const events = [...fr.events].sort((a, b) => a.frame - b.frame);
     const FRAME_MS = 33;
+    const start = performance.now();
+    let evIdx = 0;
     let raf = 0;
+
+    const fireEvent = (kind: string, x: number, y: number) => {
+      particlesRef.current.push({ x, y, kind, t0: performance.now() });
+      const strong = kind === "explode" || kind === "ko";
+      shakeRef.current = {
+        until: performance.now() + (strong ? 460 : 260),
+        mag: strong ? 16 : kind === "spike" ? 10 : 7,
+      };
+    };
+
     const step = () => {
-      const t = performance.now() - start;
-      const frame = Math.floor(t / FRAME_MS);
+      const frame = Math.floor((performance.now() - start) / FRAME_MS);
+      while (evIdx < events.length && events[evIdx].frame <= frame) {
+        const e = events[evIdx++];
+        fireEvent(e.kind, e.x, e.y);
+      }
       if (frame >= timeline.length) {
-        animRef.current = null;
-        // 재생 끝난 시점에 흔들림(피격 임팩트 느낌)
-        if (anyDrop > 0) {
-          shakeRef.current = { until: performance.now() + (myDrop > 0 ? 480 : 300), mag: myDrop > 0 ? 16 : 8 };
+        // 남은 이벤트 마저 발생
+        while (evIdx < events.length) {
+          const e = events[evIdx++];
+          fireEvent(e.kind, e.x, e.y);
         }
-        prevHpRef.current = Object.fromEntries(state.marbles.map((m) => [m.owner, m.hp]));
+        animRef.current = null;
+        applyFlick(); // 돌이 멈춘 뒤 차례 전환
         return;
       }
       const positions: Record<string, [number, number]> = {};
@@ -229,14 +233,6 @@ function Arena() {
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.flickResolve?.seq]);
-
-  // 스냅샷 갱신 시 prevHp 동기화(재생 없는 경우)
-  useEffect(() => {
-    if (!state.flickResolve) {
-      prevHpRef.current = Object.fromEntries(state.marbles.map((m) => [m.owner, m.hp]));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.marbles]);
 
   // 렌더 루프 (카메라 부드러운 추적)
   useEffect(() => {
@@ -296,6 +292,30 @@ function Arena() {
       ctx.lineWidth = 4;
       ctx.strokeStyle = "#ffd60a";
       ctx.stroke();
+
+      // 바닥 그리드(이동감/공간감) — 아레나 원 안쪽에만
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(acx, acy, arenaR * zoom, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.strokeStyle = "rgba(255,255,255,0.06)";
+      ctx.lineWidth = 1;
+      const GRID = 200;
+      const x0 = Math.floor((cam.x - VIEW_SPAN) / GRID) * GRID;
+      const y0 = Math.floor((cam.y - VIEW_SPAN) / GRID) * GRID;
+      ctx.beginPath();
+      for (let gx = x0; gx <= cam.x + VIEW_SPAN; gx += GRID) {
+        const [a] = toS(gx, 0);
+        ctx.moveTo(a, 0);
+        ctx.lineTo(a, size);
+      }
+      for (let gy = y0; gy <= cam.y + VIEW_SPAN; gy += GRID) {
+        const [, b] = toS(0, gy);
+        ctx.moveTo(0, b);
+        ctx.lineTo(size, b);
+      }
+      ctx.stroke();
+      ctx.restore();
 
       // 장애물/필드
       for (const ob of obstaclesRef.current) {
@@ -399,6 +419,70 @@ function Arena() {
         }
       }
 
+      // 충돌 이펙트(파티클)
+      const nowp = performance.now();
+      const live: typeof particlesRef.current = [];
+      for (const pt of particlesRef.current) {
+        const life = pt.kind === "explode" ? 600 : pt.kind === "ko" ? 750 : pt.kind === "spike" ? 420 : 340;
+        const age = nowp - pt.t0;
+        if (age > life) continue;
+        live.push(pt);
+        const t = age / life;
+        const [px, py] = toS(pt.x, pt.y);
+        drawParticle(ctx, pt.kind, px, py, t, zoom);
+      }
+      particlesRef.current = live;
+
+      // 미니맵(전체 전장 파악) — 우상단, 카메라와 무관한 화면 좌표
+      const MS = Math.min(150, size * 0.26);
+      const mx0 = size - MS - 12;
+      const my0 = 12;
+      const mscale = MS / (arenaR * 2);
+      const mc = (wx: number, wy: number): [number, number] => [
+        mx0 + MS / 2 + wx * mscale,
+        my0 + MS / 2 + wy * mscale,
+      ];
+      ctx.save();
+      ctx.globalAlpha = 0.92;
+      ctx.fillStyle = "rgba(8,10,24,0.7)";
+      ctx.beginPath();
+      ctx.arc(mx0 + MS / 2, my0 + MS / 2, MS / 2 + 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "#ffd60a";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(mx0 + MS / 2, my0 + MS / 2, (arenaR * mscale), 0, Math.PI * 2);
+      ctx.stroke();
+      for (const ob of obstaclesRef.current) {
+        const oi = OBSTACLE_INFO[ob.kind];
+        if (!oi) continue;
+        const [ox, oy] = mc(ob.x, ob.y);
+        ctx.fillStyle = oi.solid ? oi.stroke : oi.fill;
+        ctx.beginPath();
+        ctx.arc(ox, oy, oi.solid ? 2.5 : 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (const m of marbles) {
+        if (!m.alive) continue;
+        const pos = anim?.[m.owner] ?? [m.x, m.y];
+        const [dx, dy] = mc(pos[0], pos[1]);
+        ctx.beginPath();
+        ctx.arc(dx, dy, m.owner === currentTurnRef.current ? 4 : 3, 0, Math.PI * 2);
+        ctx.fillStyle = playerColor(m.color_index);
+        ctx.fill();
+        if (m.owner === myId) {
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+        if (m.owner === currentTurnRef.current) {
+          ctx.strokeStyle = "#ffd60a";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
@@ -474,6 +558,69 @@ function Arena() {
       {myTurn && <div className="aim-hint">내 알에서 원하는 방향으로 드래그 → 놓으면 발사 (점선=예상 경로, 멀수록 강함)</div>}
     </div>
   );
+}
+
+// 충돌/효과 파티클 그리기. t: 0~1 진행도.
+function drawParticle(ctx: CanvasRenderingContext2D, kind: string, x: number, y: number, t: number, zoom: number) {
+  const fade = 1 - t;
+  ctx.save();
+  if (kind === "explode" || kind === "ko") {
+    const big = kind === "ko";
+    const maxR = (big ? 160 : 110) * zoom;
+    // 확장 링
+    ctx.globalAlpha = fade;
+    ctx.beginPath();
+    ctx.arc(x, y, maxR * t, 0, Math.PI * 2);
+    ctx.strokeStyle = big ? "#fca5a5" : "#fb923c";
+    ctx.lineWidth = (big ? 6 : 4) * (1 - t * 0.5);
+    ctx.stroke();
+    // 내부 플래시
+    ctx.globalAlpha = fade * 0.6;
+    ctx.beginPath();
+    ctx.arc(x, y, maxR * 0.5 * (1 - t), 0, Math.PI * 2);
+    ctx.fillStyle = big ? "#ef4444" : "#f59e0b";
+    ctx.fill();
+    // 스파크
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = "#fde68a";
+    ctx.lineWidth = 2;
+    const spikes = big ? 12 : 8;
+    for (let i = 0; i < spikes; i++) {
+      const a = (i / spikes) * Math.PI * 2;
+      const r0 = maxR * 0.4 * t;
+      const r1 = maxR * (0.7 + 0.3 * t);
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0);
+      ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1);
+      ctx.stroke();
+    }
+  } else if (kind === "spike") {
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = "#f87171";
+    ctx.lineWidth = 2.5;
+    const r = 26 * zoom * (0.5 + t);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+      ctx.stroke();
+    }
+  } else {
+    // hit: 노란 플래시 + 작은 링
+    ctx.globalAlpha = fade;
+    ctx.beginPath();
+    ctx.arc(x, y, 30 * zoom * t, 0, Math.PI * 2);
+    ctx.strokeStyle = "#fde047";
+    ctx.lineWidth = 3 * fade;
+    ctx.stroke();
+    ctx.globalAlpha = fade * 0.7;
+    ctx.beginPath();
+    ctx.arc(x, y, 10 * zoom * (1 - t), 0, Math.PI * 2);
+    ctx.fillStyle = "#fef08a";
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 function drawAimArrow(

@@ -719,7 +719,7 @@ fn handle_client_msg(
             let Some(f) = room.flick.as_mut() else {
                 return;
             };
-            let (ids, timeline) = f.resolve(pid, angle, power);
+            let (ids, timeline, events) = f.resolve(pid, angle, power);
             let marbles = f.infos();
             let alive = f.alive_count();
             let winner = f.last_alive();
@@ -731,6 +731,7 @@ fn handle_client_msg(
                 room.broadcast(&ServerMsg::FlickResolved {
                     ids,
                     timeline,
+                    events,
                     marbles,
                     current_turn: None,
                     deadline_ms: None,
@@ -750,6 +751,7 @@ fn handle_client_msg(
             room.broadcast(&ServerMsg::FlickResolved {
                 ids,
                 timeline,
+                events,
                 marbles,
                 current_turn: next,
                 deadline_ms: room.deadline_ms,

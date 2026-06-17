@@ -192,6 +192,7 @@ pub enum ServerMsg {
     FlickResolved {
         ids: Vec<Uuid>,
         timeline: Vec<Vec<[i16; 2]>>,
+        events: Vec<FlickEvent>,
         marbles: Vec<FlickMarble>,
         current_turn: Option<Uuid>,
         deadline_ms: Option<u64>,
@@ -206,6 +207,14 @@ pub struct VoteCell {
     pub x: u16,
     pub y: u16,
     pub count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FlickEvent {
+    pub frame: u32,
+    pub x: f32,
+    pub y: f32,
+    pub kind: String, // "hit" | "ko" | "explode" | "spike"
 }
 
 #[derive(Debug, Clone, Serialize)]

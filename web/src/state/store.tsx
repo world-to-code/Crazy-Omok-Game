@@ -9,6 +9,7 @@ import {
 import type {
   ChatLine,
   ClientMsg,
+  FlickEvent,
   FlickMarble,
   FlickObstacle,
   PlayerInfo,
@@ -53,7 +54,15 @@ export interface GameState {
   obstacles: FlickObstacle[];
   drafting: boolean;
   draftOptions: string[] | null;
-  flickResolve: { ids: string[]; timeline: [number, number][][]; seq: number } | null;
+  flickResolve: { ids: string[]; timeline: [number, number][][]; events: FlickEvent[]; seq: number } | null;
+  // 재생이 끝나면 적용할 다음 차례 상태(돌이 멈춘 뒤 전환).
+  flickPending: {
+    marbles: FlickMarble[];
+    currentTurn: string | null;
+    deadlineMs: number | null;
+    status: string;
+    winner: string | null;
+  } | null;
   othersAim: { owner: string; angle: number; power: number } | null;
 }
 
@@ -90,6 +99,7 @@ const initial: GameState = {
   drafting: false,
   draftOptions: null,
   flickResolve: null,
+  flickPending: null,
   othersAim: null,
 };
 
@@ -109,6 +119,7 @@ type Action =
   | { kind: "screen"; screen: Screen }
   | { kind: "linkJoin"; code: string }
   | { kind: "selectGame"; game: "omok" | "flick" }
+  | { kind: "flickApply" }
   | { kind: "clearError" }
   | { kind: "reset" };
 
@@ -122,6 +133,21 @@ function reducer(s: GameState, a: Action): GameState {
       return { ...s, screen: "joinLink", linkCode: a.code };
     case "selectGame":
       return { ...s, selectedGame: a.game };
+    case "flickApply": {
+      const p = s.flickPending;
+      if (!p) return { ...s, flickResolve: null };
+      return {
+        ...s,
+        marbles: p.marbles,
+        currentTurn: p.currentTurn,
+        deadlineMs: p.deadlineMs,
+        status: p.status,
+        winner: p.winner,
+        flickResolve: null,
+        flickPending: null,
+        othersAim: null,
+      };
+    }
     case "clearError":
       return { ...s, error: null };
     case "reset":
@@ -295,18 +321,24 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         ? s
         : { ...s, othersAim: { owner: m.owner, angle: m.angle, power: m.power } };
     case "FlickResolved":
+      // 발사 모션 재생 동안엔 현재 상태(쏜 사람·기존 HP) 유지, 카운트다운 멈춤.
+      // 재생이 끝나면 flickApply로 다음 차례를 적용한다(돌이 멈춘 뒤 전환).
       return {
         ...s,
-        marbles: m.marbles,
-        currentTurn: m.current_turn,
-        deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
-        status: m.status,
-        winner: m.winner,
+        deadlineMs: null,
         othersAim: null,
         flickResolve: {
           ids: m.ids,
           timeline: m.timeline,
+          events: m.events,
           seq: (s.flickResolve?.seq ?? 0) + 1,
+        },
+        flickPending: {
+          marbles: m.marbles,
+          currentTurn: m.current_turn,
+          deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
+          status: m.status,
+          winner: m.winner,
         },
       };
     case "Error":
@@ -357,6 +389,7 @@ interface Ctx {
   send: (m: ClientMsg) => void;
   setScreen: (s: Screen) => void;
   selectGame: (g: "omok" | "flick") => void;
+  applyFlick: () => void;
   clearError: () => void;
   leave: () => void;
 }
@@ -479,6 +512,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     send,
     setScreen: (screen) => dispatch({ kind: "screen", screen }),
     selectGame: (game) => dispatch({ kind: "selectGame", game }),
+    applyFlick: () => dispatch({ kind: "flickApply" }),
     clearError: () => dispatch({ kind: "clearError" }),
     leave,
   };

@@ -54,6 +54,13 @@ export interface VoteCell {
   count: number;
 }
 
+export interface FlickEvent {
+  frame: number;
+  x: number;
+  y: number;
+  kind: string; // "hit" | "ko" | "explode" | "spike"
+}
+
 export interface FlickObstacle {
   kind: string;
   shape: string; // "circle" | "rect"
@@ -168,6 +175,7 @@ export type ServerMsg =
       type: "FlickResolved";
       ids: string[];
       timeline: [number, number][][];
+      events: FlickEvent[];
       marbles: FlickMarble[];
       current_turn: string | null;
       deadline_ms: number | null;

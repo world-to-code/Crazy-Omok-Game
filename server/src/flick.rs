@@ -227,6 +227,9 @@ pub struct FlickGame {
     pub obstacles: Vec<Obstacle>,
     pub drafting: bool,
     pub draft: HashMap<Uuid, DraftOffer>,
+    // 발사 시뮬 중 충돌 이벤트 수집(클라 이펙트용). resolve마다 초기화.
+    ev: Vec<crate::protocol::FlickEvent>,
+    ev_frame: u32,
 }
 
 impl FlickGame {
@@ -269,7 +272,18 @@ impl FlickGame {
             obstacles: generate_obstacles(ARENA_R),
             drafting: true,
             draft,
+            ev: Vec::new(),
+            ev_frame: 0,
         }
+    }
+
+    fn push_event(&mut self, x: f64, y: f64, kind: &str) {
+        self.ev.push(crate::protocol::FlickEvent {
+            frame: self.ev_frame,
+            x: x as f32,
+            y: y as f32,
+            kind: kind.to_string(),
+        });
     }
 
     pub fn obstacle_infos(&self) -> Vec<crate::protocol::FlickObstacle> {
@@ -347,9 +361,14 @@ impl FlickGame {
         shooter: Uuid,
         angle: f64,
         power: f64,
-    ) -> (Vec<Uuid>, Vec<Vec<[i16; 2]>>) {
+    ) -> (
+        Vec<Uuid>,
+        Vec<Vec<[i16; 2]>>,
+        Vec<crate::protocol::FlickEvent>,
+    ) {
         let ids: Vec<Uuid> = self.marbles.iter().map(|m| m.owner).collect();
         let mut timeline: Vec<Vec<[i16; 2]>> = Vec::new();
+        self.ev.clear();
 
         // 발사 속도 설정
         let slingshot = self
@@ -369,6 +388,7 @@ impl FlickGame {
 
         for step in 0..MAX_STEPS {
             let n = self.marbles.len();
+            self.ev_frame = timeline.len() as u32; // 이 스텝 이벤트가 표시될 대략 프레임
             // 적분 + 마찰 + 필드 효과
             for i in 0..n {
                 if !self.marbles[i].alive {
@@ -459,6 +479,8 @@ impl FlickGame {
                             ObKind::Spike => {
                                 let dmg = ((impact * 0.004) as i32 + 5).max(5);
                                 self.apply_hp(i, -dmg);
+                                let (mx, my) = (self.marbles[i].x, self.marbles[i].y);
+                                self.push_event(mx, my, "spike");
                             }
                             ObKind::Bomb => self.explode_at(ob.x, ob.y, 240.0, 1100.0, 14),
                             _ => {}
@@ -507,7 +529,8 @@ impl FlickGame {
             m.vy = 0.0;
         }
         timeline.push(self.frame());
-        (ids, timeline)
+        let events = std::mem::take(&mut self.ev);
+        (ids, timeline, events)
     }
 
     fn frame(&self) -> Vec<[i16; 2]> {
@@ -601,6 +624,8 @@ impl FlickGame {
             self.apply_hp(a, -recoil);
         }
         self.apply_hp(v, -dmg);
+        let (vx, vy, dead) = (self.marbles[v].x, self.marbles[v].y, !self.marbles[v].alive);
+        self.push_event(vx, vy, if dead { "ko" } else { "hit" });
         // 흡혈: 공격자가 입힌 피해의 일부 회복
         if self.marbles[a].power == "lifesteal" {
             self.apply_hp(a, dmg / 2);
@@ -610,6 +635,7 @@ impl FlickGame {
 
     fn explode(&mut self, center: usize) {
         let (cx, cy) = (self.marbles[center].x, self.marbles[center].y);
+        self.push_event(cx, cy, "explode");
         for k in 0..self.marbles.len() {
             if k == center || !self.marbles[k].alive {
                 continue;
@@ -629,6 +655,7 @@ impl FlickGame {
 
     /// 임의 지점 폭발 (폭탄 장애물용). 환경 피해라 모든 알에 적용.
     fn explode_at(&mut self, cx: f64, cy: f64, radius: f64, force: f64, dmg: i32) {
+        self.push_event(cx, cy, "explode");
         for k in 0..self.marbles.len() {
             if !self.marbles[k].alive {
                 continue;
