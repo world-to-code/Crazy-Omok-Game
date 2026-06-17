@@ -137,44 +137,74 @@ fn rand_range(rng: &mut impl Rng, lo: f64, hi: f64) -> f64 {
     lo + rng.gen::<f64>() * (hi - lo)
 }
 
-/// 아레나에 장애물 배치. 10종이 최소 1개씩 + 추가 랜덤.
-fn generate_obstacles(arena_r: f64) -> Vec<Obstacle> {
+/// 장애물의 충돌 반경(겹침 판정용 바운딩 원).
+fn bound_radius(kind: ObKind, r: f64, w: f64, h: f64) -> f64 {
+    if kind.is_circle() {
+        r
+    } else {
+        0.5 * (w * w + h * h).sqrt()
+    }
+}
+
+/// 아레나에 장애물 배치. 10종 최소 1개씩 + 추가 랜덤, 서로/알 시작점과 겹치지 않게.
+fn generate_obstacles(arena_r: f64, starts: &[(f64, f64)]) -> Vec<Obstacle> {
     let mut rng = rand::thread_rng();
     let mut kinds: Vec<ObKind> = ALL_OBKINDS.to_vec();
-    // 추가 6개 랜덤
     for _ in 0..6 {
         kinds.push(*ALL_OBKINDS.choose(&mut rng).unwrap());
     }
     kinds.shuffle(&mut rng);
 
-    let mut obs = Vec::new();
+    const GAP: f64 = 40.0; // 장애물 사이 최소 간격
+    let mut obs: Vec<Obstacle> = Vec::new();
     for kind in kinds {
-        // 중심에서 너무 가깝지 않게, 벽 안쪽으로.
-        let ang = rand_range(&mut rng, 0.0, std::f64::consts::TAU);
-        let dist = rand_range(&mut rng, arena_r * 0.18, arena_r * 0.78);
-        let x = dist * ang.cos();
-        let y = dist * ang.sin();
         let (r, w, h) = match kind {
             ObKind::Rock => (rand_range(&mut rng, 55.0, 95.0), 0.0, 0.0),
-            ObKind::Spike => (rand_range(&mut rng, 38.0, 60.0), 0.0, 0.0),
+            ObKind::Spike => (rand_range(&mut rng, 40.0, 62.0), 0.0, 0.0),
             ObKind::Bumper => (rand_range(&mut rng, 45.0, 70.0), 0.0, 0.0),
-            ObKind::Bomb => (rand_range(&mut rng, 32.0, 46.0), 0.0, 0.0),
-            ObKind::Gravity => (rand_range(&mut rng, 170.0, 250.0), 0.0, 0.0),
-            _ => {
-                let w = rand_range(&mut rng, 180.0, 360.0);
-                let h = rand_range(&mut rng, 160.0, 320.0);
-                (0.0, w, h)
-            }
+            ObKind::Bomb => (rand_range(&mut rng, 34.0, 48.0), 0.0, 0.0),
+            ObKind::Gravity => (rand_range(&mut rng, 160.0, 230.0), 0.0, 0.0),
+            _ => (
+                0.0,
+                rand_range(&mut rng, 170.0, 320.0),
+                rand_range(&mut rng, 150.0, 300.0),
+            ),
         };
-        obs.push(Obstacle {
-            kind,
-            x,
-            y,
-            r,
-            w,
-            h,
-            dir: rand_range(&mut rng, 0.0, std::f64::consts::TAU),
-        });
+        let br = bound_radius(kind, r, w, h);
+        // 거부 샘플링: 겹치지 않는 자리를 찾는다.
+        let mut placed = None;
+        for _ in 0..60 {
+            let ang = rand_range(&mut rng, 0.0, std::f64::consts::TAU);
+            // 벽 안쪽으로(반경 여유), 중앙은 살짝 비움.
+            let dmax = (arena_r - br - 30.0).max(arena_r * 0.2);
+            let dist = rand_range(&mut rng, arena_r * 0.14, dmax);
+            let x = dist * ang.cos();
+            let y = dist * ang.sin();
+            // 다른 장애물과 겹침 검사
+            let hit_ob = obs.iter().any(|o| {
+                let ob_br = bound_radius(o.kind, o.r, o.w, o.h);
+                ((x - o.x).powi(2) + (y - o.y).powi(2)).sqrt() < br + ob_br + GAP
+            });
+            // 알 시작점과 겹침 검사
+            let hit_start = starts
+                .iter()
+                .any(|&(sx, sy)| ((x - sx).powi(2) + (y - sy).powi(2)).sqrt() < br + MARBLE_R + 50.0);
+            if !hit_ob && !hit_start {
+                placed = Some((x, y));
+                break;
+            }
+        }
+        if let Some((x, y)) = placed {
+            obs.push(Obstacle {
+                kind,
+                x,
+                y,
+                r,
+                w,
+                h,
+                dir: rand_range(&mut rng, 0.0, std::f64::consts::TAU),
+            });
+        }
     }
     obs
 }
@@ -266,10 +296,11 @@ impl FlickGame {
                 },
             );
         }
+        let starts: Vec<(f64, f64)> = marbles.iter().map(|m| (m.x, m.y)).collect();
         FlickGame {
             arena_r: ARENA_R,
             marbles,
-            obstacles: generate_obstacles(ARENA_R),
+            obstacles: generate_obstacles(ARENA_R, &starts),
             drafting: true,
             draft,
             ev: Vec::new(),
