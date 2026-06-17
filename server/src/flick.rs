@@ -17,14 +17,15 @@ const RESTITUTION: f64 = 0.92;
 const MAX_STEPS: usize = 900;
 const KEYFRAME_EVERY: usize = 6; // 약 20fps로 기록
 const STOP_SPEED: f64 = 8.0;
-const DMG_K: f64 = 0.0022; // 충돌속도→데미지 계수 (속도가 빨라져 한 방 KO 방지로 하향)
+const DMG_K: f64 = 0.0022; // 충돌속도→데미지 계수
+const DMG_CAP: i32 = 32; // 한 번 충돌 최대 피해(한 방 KO 방지)
 const WALL_RESTITUTION: f64 = 0.9;
 const EXPLOSION_R: f64 = 120.0;
-// 장애물 효과 세기
-const GRAV_ACCEL: f64 = 1500.0;
-const WIND_ACCEL: f64 = 1100.0;
-const BOOST_MULT: f64 = 1.03;
-const SWAMP_MULT: f64 = 0.90;
+// 장애물 효과 세기 (필드는 매 스텝 누적되므로 과하지 않게)
+const GRAV_ACCEL: f64 = 850.0;
+const WIND_ACCEL: f64 = 650.0;
+const BOOST_MULT: f64 = 1.018;
+const SWAMP_MULT: f64 = 0.92;
 
 /// 공격 계열 / 유틸 계열에서 하나씩 뽑아 2개 제시(서로 다른 성격).
 const OFFENSE: [&str; 5] = ["explosion", "heavy", "pierce", "spikes", "lifesteal"];
@@ -585,6 +586,7 @@ impl FlickGame {
         let atk = self.marbles[a].atk as f64;
         let def = self.marbles[v].def as f64;
         let mut dmg = (impact * DMG_K * atk - def).max(0.0).round() as i32;
+        dmg = dmg.min(DMG_CAP);
         if dmg <= 0 {
             return;
         }

@@ -172,8 +172,8 @@ function Arena() {
     if (!el) return;
     const update = () => {
       const w = el.clientWidth;
-      const h = Math.max(320, window.innerHeight - el.getBoundingClientRect().top - 24);
-      setSize(Math.max(320, Math.min(w, h)));
+      const h = el.clientHeight - 34; // 조준 힌트 공간 확보
+      setSize(Math.max(240, Math.min(w, h)));
     };
     update();
     const ro = new ResizeObserver(update);
