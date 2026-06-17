@@ -172,7 +172,7 @@ select:focus {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 300px;
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 12px;
 }
 .flick-arena-wrap {
@@ -197,18 +197,24 @@ select:focus {
   text-align: center;
 }
 .flick-side {
+  min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
 }
 .flick-side .players {
-  max-height: 38%;
+  min-width: 0;
+  max-height: 50%;
   overflow-y: auto;
 }
 .flick-side .chat {
+  min-width: 0;
   height: auto;
   min-height: 0;
+}
+.flick-side .marble-stats {
+  overflow-wrap: anywhere;
 }
 .marble-stats {
   display: block;
