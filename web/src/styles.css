@@ -200,21 +200,40 @@ select:focus {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 12px;
-}
-.flick-side .players {
-  min-width: 0;
-  max-height: 50%;
-  overflow-y: auto;
 }
 .flick-side .chat {
   min-width: 0;
   height: auto;
   min-height: 0;
 }
-.flick-side .marble-stats {
-  overflow-wrap: anywhere;
+
+/* 상단 바: 내 알 능력/공격/방어/체력 (본인 화면에만) */
+.my-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding: 4px 12px;
+  background: var(--panel2);
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.my-stats .ms-power {
+  color: var(--accent);
+}
+.my-stats .ms-stat {
+  font-variant-numeric: tabular-nums;
+}
+.my-stats .ms-alive {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+.flick-bar .countdown {
+  margin-left: 14px;
 }
 .marble-stats {
   display: block;

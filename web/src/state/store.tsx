@@ -105,12 +105,14 @@ const initial: GameState = {
 
 const key = (x: number, y: number) => `${x},${y}`;
 
-// 상태에 따른 화면 결정: 진행 중이면 게임, 대기면 로비.
-// 종료 상태에선 이미 로비/게임에 있으면 그대로 둠(종료 후 로비로 나왔는데 튕기는 것 방지).
+// 상태에 따른 화면 결정.
+// - 이미 방 안(로비/게임): 진행 중이면 게임, 그 외엔 현재 화면 유지(종료 후 로비에서 튕김 방지).
+// - 처음 입장/재접속: 진행 중이면 게임, 그 외(대기/종료)는 로비로(새로 들어온 사람은 대기실).
 function screenFor(status: string, current: Screen): Screen {
-  if (status === "playing") return "game";
-  if (status === "lobby") return "lobby";
-  return current === "lobby" || current === "game" ? current : "game";
+  if (current === "lobby" || current === "game") {
+    return status === "playing" ? "game" : current;
+  }
+  return status === "playing" ? "game" : "lobby";
 }
 
 type Action =

@@ -887,8 +887,8 @@ fn join_room(
             }
         }
     }
-    if room.status != RoomStatus::Lobby {
-        err(tx, "이미 시작된 게임입니다");
+    if room.status == RoomStatus::Playing {
+        err(tx, "게임이 진행 중입니다. 끝난 뒤 다시 시도하세요");
         return;
     }
     if room.players.len() as u8 >= room.max_players {

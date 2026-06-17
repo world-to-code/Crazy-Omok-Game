@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useGame } from "../state/store";
 import { POWER_INFO, OBSTACLE_INFO, playerColor } from "../types";
-import type { FlickMarble } from "../types";
 import Countdown from "../components/Countdown";
 import Chat from "../components/Chat";
 import { ensureFlickWasm, predictPath } from "../net/flickWasm";
@@ -10,7 +9,7 @@ const VIEW_SPAN = 1050; // 화면에 보이는 월드 폭(맵이 넓어 카메�
 
 export default function FlickGame() {
   const { state, send, leave, setScreen } = useGame();
-  const { marbles, currentTurn, myId, status, winner, players, drafting, draftOptions } = state;
+  const { currentTurn, myId, status, winner, players, drafting, draftOptions } = state;
 
   const myTurn = status === "playing" && !drafting && currentTurn === myId;
   const winName = players.find((p) => p.id === winner)?.nickname;
@@ -51,6 +50,7 @@ export default function FlickGame() {
       <div className="flick-bar card">
         <button className="back" onClick={leave}>← 나가기</button>
         <FlickTurnInfo />
+        <MyStats />
         <Countdown deadlineMs={state.deadlineMs} />
       </div>
       <div className="flick-body">
@@ -58,7 +58,6 @@ export default function FlickGame() {
           <Arena />
         </div>
         <div className="flick-side">
-          <MarbleList marbles={marbles} currentTurn={currentTurn} myId={myId} players={players} />
           <Chat />
         </div>
       </div>
@@ -93,41 +92,21 @@ function FlickTurnInfo() {
   );
 }
 
-function MarbleList({
-  marbles,
-  currentTurn,
-  myId,
-  players,
-}: {
-  marbles: FlickMarble[];
-  currentTurn: string | null;
-  myId: string | null;
-  players: { id: string; nickname: string }[];
-}) {
+// 내 알의 능력/공격력/방어력 — 본인 화면에서만 보임.
+function MyStats() {
+  const { state } = useGame();
+  const me = state.marbles.find((m) => m.owner === state.myId);
+  if (!me) return null;
+  const info = POWER_INFO[me.power];
   return (
-    <div className="players">
-      <div className="players-title">참가자 ({marbles.filter((m) => m.alive).length}명 생존)</div>
-      <ul>
-        {marbles.map((m) => {
-          const name = players.find((p) => p.id === m.owner)?.nickname ?? "?";
-          const info = POWER_INFO[m.power];
-          const turn = currentTurn === m.owner;
-          return (
-            <li key={m.owner} className={`player-row${turn ? " turn" : ""}${m.alive ? "" : " dead"}`}>
-              <span className="color-dot" style={{ background: playerColor(m.color_index) }} />
-              <span className="player-name">
-                {name}
-                {m.owner === myId && " (나)"}
-                <span className="marble-stats">
-                  {info ? `${info.emoji}${info.name}` : ""} · ❤️{m.hp}/{m.max_hp} ⚔️{m.atk} 🛡️{m.def}
-                  {m.shield ? " 🔰" : ""}
-                </span>
-              </span>
-              {!m.alive && <span className="tag off">탈락</span>}
-            </li>
-          );
-        })}
-      </ul>
+    <div className="my-stats">
+      <span className="color-dot" style={{ background: playerColor(me.color_index) }} />
+      {info && <span className="ms-power">{info.emoji} {info.name}</span>}
+      <span className="ms-stat">❤️ {me.hp}/{me.max_hp}</span>
+      <span className="ms-stat">⚔️ {me.atk}</span>
+      <span className="ms-stat">🛡️ {me.def}</span>
+      {me.shield && <span className="ms-stat">🔰</span>}
+      <span className="ms-alive">생존 {state.marbles.filter((m) => m.alive).length}명</span>
     </div>
   );
 }
@@ -160,6 +139,7 @@ function Arena() {
   const camRef = useRef<{ x: number; y: number } | null>(null);
   const shakeRef = useRef<{ until: number; mag: number }>({ until: 0, mag: 0 });
   const particlesRef = useRef<{ x: number; y: number; kind: string; t0: number }[]>([]);
+  const dmgTextsRef = useRef<{ x: number; y: number; amount: number; ko: boolean; t0: number }[]>([]);
   const trailsRef = useRef<Record<string, [number, number][]>>({});
   const lastAimSentRef = useRef(0);
 
@@ -198,11 +178,13 @@ function Arena() {
     let evIdx = 0;
     let raf = 0;
 
-    const fireEvent = (kind: string, x: number, y: number) => {
-      particlesRef.current.push({ x, y, kind, t0: performance.now() });
+    const fireEvent = (kind: string, x: number, y: number, amount: number) => {
+      const now = performance.now();
+      particlesRef.current.push({ x, y, kind, t0: now });
+      if (amount > 0) dmgTextsRef.current.push({ x, y, amount, ko: kind === "ko", t0: now });
       const strong = kind === "explode" || kind === "ko";
       shakeRef.current = {
-        until: performance.now() + (strong ? 460 : 260),
+        until: now + (strong ? 460 : 260),
         mag: strong ? 16 : kind === "spike" ? 10 : 7,
       };
     };
@@ -211,13 +193,13 @@ function Arena() {
       const frame = Math.floor((performance.now() - start) / FRAME_MS);
       while (evIdx < events.length && events[evIdx].frame <= frame) {
         const e = events[evIdx++];
-        fireEvent(e.kind, e.x, e.y);
+        fireEvent(e.kind, e.x, e.y, e.amount);
       }
       if (frame >= timeline.length) {
         // 남은 이벤트 마저 발생
         while (evIdx < events.length) {
           const e = events[evIdx++];
-          fireEvent(e.kind, e.x, e.y);
+          fireEvent(e.kind, e.x, e.y, e.amount);
         }
         animRef.current = null;
         applyFlick(); // 돌이 멈춘 뒤 차례 전환
@@ -405,14 +387,19 @@ function Arena() {
           ctx.stroke();
           ctx.globalAlpha = 1;
         }
-        // 체력바
+        // 체력바 + 현재/최대 텍스트
         if (m.alive) {
-          const bw = r * 2.2;
+          const bw = Math.max(34, r * 2.4);
           const ratio = Math.max(0, m.hp / m.max_hp);
           ctx.fillStyle = "rgba(0,0,0,0.55)";
-          ctx.fillRect(sx - bw / 2, sy - r - 11, bw, 5);
+          ctx.fillRect(sx - bw / 2, sy - r - 12, bw, 5);
           ctx.fillStyle = ratio > 0.4 ? "#4ade80" : "#f87171";
-          ctx.fillRect(sx - bw / 2, sy - r - 11, bw * ratio, 5);
+          ctx.fillRect(sx - bw / 2, sy - r - 12, bw * ratio, 5);
+          ctx.fillStyle = "rgba(255,255,255,0.95)";
+          ctx.font = "bold 11px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(`${m.hp}/${m.max_hp}`, sx, sy - r - 14);
         }
       }
 
@@ -434,7 +421,17 @@ function Arena() {
             ctx.stroke();
             ctx.setLineDash([]);
           }
-          drawAimArrow(ctx, toS, me.x, me.y, aimRef.current.angle, aimRef.current.power, arenaR, zoom, "#ffd60a");
+          drawAimArrow(
+            ctx,
+            toS,
+            me.x,
+            me.y,
+            aimRef.current.angle,
+            aimRef.current.power,
+            arenaR,
+            zoom,
+            aimRef.current.power > 1 ? "#ff4d4d" : "#ffd60a",
+          );
         }
       }
 
@@ -460,6 +457,37 @@ function Arena() {
         drawParticle(ctx, pt.kind, px, py, t, zoom);
       }
       particlesRef.current = live;
+
+      // 떠오르는 데미지 숫자
+      const liveTexts: typeof dmgTextsRef.current = [];
+      for (const dt of dmgTextsRef.current) {
+        const age = nowp - dt.t0;
+        const life = dt.ko ? 1100 : 800;
+        if (age > life) continue;
+        liveTexts.push(dt);
+        const t = age / life;
+        const [px, py] = toS(dt.x, dt.y);
+        ctx.save();
+        ctx.globalAlpha = 1 - t;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        if (dt.ko) {
+          ctx.font = "bold 22px sans-serif";
+          ctx.fillStyle = "#fca5a5";
+          ctx.fillText(`-${dt.amount} 처치!`, px, py - 28 - t * 36);
+        } else {
+          ctx.font = "bold 18px sans-serif";
+          ctx.fillStyle = "#fde047";
+          ctx.strokeStyle = "rgba(0,0,0,0.6)";
+          ctx.lineWidth = 3;
+          const tx = px;
+          const ty = py - 24 - t * 32;
+          ctx.strokeText(`-${dt.amount}`, tx, ty);
+          ctx.fillText(`-${dt.amount}`, tx, ty);
+        }
+        ctx.restore();
+      }
+      dmgTextsRef.current = liveTexts;
 
       // 미니맵(전체 전장 파악) — 우상단, 카메라와 무관한 화면 좌표
       const MS = Math.min(150, size * 0.26);
@@ -533,7 +561,9 @@ function Arena() {
     const dx = wx - me.x;
     const dy = wy - me.y;
     const angle = Math.atan2(dy, dx);
-    const power = Math.min(1, Math.hypot(dx, dy) / (arenaRRef.current * 0.9));
+    // 슬링샷(무제한)은 세기 상한이 더 높다.
+    const cap = me.power === "slingshot" ? 2.6 : 1;
+    const power = Math.min(cap, Math.hypot(dx, dy) / (arenaRRef.current * 0.9));
     aimRef.current = { angle, power };
     // 궤적 예측 (WASM) — 다른 알 + 솔리드 장애물(원형)을 장애물로 전달
     const others: number[] = [];
@@ -543,8 +573,7 @@ function Arena() {
     for (const ob of obstaclesRef.current) {
       if (OBSTACLE_INFO[ob.kind]?.solid && ob.shape === "circle") others.push(ob.x, ob.y, ob.r);
     }
-    const mult = me.power === "slingshot" ? 1.4 : 1.0;
-    trajRef.current = predictPath(me.x, me.y, angle, power, mult, arenaRRef.current, me.r, new Float32Array(others));
+    trajRef.current = predictPath(me.x, me.y, angle, power, 1.0, arenaRRef.current, me.r, new Float32Array(others));
     // 조준 공유(스로틀)
     const now = performance.now();
     if (now - lastAimSentRef.current > 60) {

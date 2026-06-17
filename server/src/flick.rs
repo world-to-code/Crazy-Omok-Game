@@ -17,8 +17,10 @@ const RESTITUTION: f64 = 0.92;
 const MAX_STEPS: usize = 900;
 const KEYFRAME_EVERY: usize = 6; // 약 20fps로 기록
 const STOP_SPEED: f64 = 8.0;
-const DMG_K: f64 = 0.0022; // 충돌속도→데미지 계수
-const DMG_CAP: i32 = 32; // 한 번 충돌 최대 피해(한 방 KO 방지)
+const DMG_K: f64 = 0.0012; // 충돌속도→데미지 계수 (세기 비율이 잘 드러나도록)
+const DMG_CAP: i32 = 40; // 보통 능력의 한 번 충돌 최대 피해
+const POWER_CAP: f64 = 1.0; // 보통 능력의 발사 세기 상한
+const POWER_CAP_UNLIMITED: f64 = 2.6; // '무제한' 능력(슬링샷)의 상한
 const WALL_RESTITUTION: f64 = 0.9;
 const EXPLOSION_R: f64 = 120.0;
 // 장애물 효과 세기 (필드는 매 스텝 누적되므로 과하지 않게)
@@ -308,12 +310,13 @@ impl FlickGame {
         }
     }
 
-    fn push_event(&mut self, x: f64, y: f64, kind: &str) {
+    fn push_event(&mut self, x: f64, y: f64, kind: &str, amount: i32) {
         self.ev.push(crate::protocol::FlickEvent {
             frame: self.ev_frame,
             x: x as f32,
             y: y as f32,
             kind: kind.to_string(),
+            amount,
         });
     }
 
@@ -401,12 +404,13 @@ impl FlickGame {
         let mut timeline: Vec<Vec<[i16; 2]>> = Vec::new();
         self.ev.clear();
 
-        // 발사 속도 설정
+        // 발사 속도 설정. 슬링샷(무제한)은 세기 상한이 더 높다(드래그한 만큼).
         let slingshot = self
             .marble(shooter)
             .map(|m| m.power == "slingshot")
             .unwrap_or(false);
-        let speed = power.clamp(0.0, 1.0) * MAX_SPEED * if slingshot { 1.4 } else { 1.0 };
+        let cap = if slingshot { POWER_CAP_UNLIMITED } else { POWER_CAP };
+        let speed = power.clamp(0.05, cap) * MAX_SPEED;
         if let Some(m) = self.marble_mut(shooter) {
             m.vx = angle.cos() * speed;
             m.vy = angle.sin() * speed;
@@ -510,8 +514,9 @@ impl FlickGame {
                             ObKind::Spike => {
                                 let dmg = ((impact * 0.004) as i32 + 5).max(5);
                                 self.apply_hp(i, -dmg);
-                                let (mx, my) = (self.marbles[i].x, self.marbles[i].y);
-                                self.push_event(mx, my, "spike");
+                                let (mx, my, dead) =
+                                    (self.marbles[i].x, self.marbles[i].y, !self.marbles[i].alive);
+                                self.push_event(mx, my, if dead { "ko" } else { "spike" }, dmg);
                             }
                             ObKind::Bomb => self.explode_at(ob.x, ob.y, 240.0, 1100.0, 14),
                             _ => {}
@@ -639,14 +644,25 @@ impl FlickGame {
     fn damage(&mut self, v: usize, a: usize, impact: f64, shooter: Uuid) {
         let atk = self.marbles[a].atk as f64;
         let def = self.marbles[v].def as f64;
-        let mut dmg = (impact * DMG_K * atk - def).max(0.0).round() as i32;
-        dmg = dmg.min(DMG_CAP);
+        // 방어력은 비율 감소(체감) — 절대 0이 되지 않게.
+        let raw = impact * DMG_K * atk;
+        let mut dmg = (raw * 100.0 / (100.0 + def * 8.0)).round() as i32;
+        if dmg < 1 && raw >= 4.0 {
+            dmg = 1; // 의미있는 충돌은 최소 1 피해
+        }
+        // 슬링샷(무제한) 발사자의 타격은 피해 상한 없음 — 세게 칠수록 강함.
+        let uncapped = self.marbles[a].owner == shooter && self.marbles[a].power == "slingshot";
+        if !uncapped {
+            dmg = dmg.min(DMG_CAP);
+        }
         if dmg <= 0 {
             return;
         }
         // 보호막: 첫 피해 무효(소모)
         if self.marbles[v].shield {
             self.marbles[v].shield = false;
+            let (vx, vy) = (self.marbles[v].x, self.marbles[v].y);
+            self.push_event(vx, vy, "shield", 0);
             return;
         }
         // 가시: 피해를 입힌 공격자에게 반동 피해 (단, 발사자는 무피해)
@@ -656,7 +672,7 @@ impl FlickGame {
         }
         self.apply_hp(v, -dmg);
         let (vx, vy, dead) = (self.marbles[v].x, self.marbles[v].y, !self.marbles[v].alive);
-        self.push_event(vx, vy, if dead { "ko" } else { "hit" });
+        self.push_event(vx, vy, if dead { "ko" } else { "hit" }, dmg);
         // 흡혈: 공격자가 입힌 피해의 일부 회복
         if self.marbles[a].power == "lifesteal" {
             self.apply_hp(a, dmg / 2);
@@ -666,7 +682,7 @@ impl FlickGame {
 
     fn explode(&mut self, center: usize) {
         let (cx, cy) = (self.marbles[center].x, self.marbles[center].y);
-        self.push_event(cx, cy, "explode");
+        self.push_event(cx, cy, "explode", 0);
         for k in 0..self.marbles.len() {
             if k == center || !self.marbles[k].alive {
                 continue;
@@ -681,12 +697,14 @@ impl FlickGame {
             self.marbles[k].vx += dx / d * f;
             self.marbles[k].vy += dy / d * f;
             self.apply_hp(k, -8);
+            let (kx, ky, dead) = (self.marbles[k].x, self.marbles[k].y, !self.marbles[k].alive);
+            self.push_event(kx, ky, if dead { "ko" } else { "hit" }, 8);
         }
     }
 
     /// 임의 지점 폭발 (폭탄 장애물용). 환경 피해라 모든 알에 적용.
     fn explode_at(&mut self, cx: f64, cy: f64, radius: f64, force: f64, dmg: i32) {
-        self.push_event(cx, cy, "explode");
+        self.push_event(cx, cy, "explode", 0);
         for k in 0..self.marbles.len() {
             if !self.marbles[k].alive {
                 continue;
@@ -701,6 +719,8 @@ impl FlickGame {
             self.marbles[k].vx += dx / d * f;
             self.marbles[k].vy += dy / d * f;
             self.apply_hp(k, -dmg);
+            let (kx, ky, dead) = (self.marbles[k].x, self.marbles[k].y, !self.marbles[k].alive);
+            self.push_event(kx, ky, if dead { "ko" } else { "hit" }, dmg);
         }
     }
 

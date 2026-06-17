@@ -58,7 +58,8 @@ export interface FlickEvent {
   frame: number;
   x: number;
   y: number;
-  kind: string; // "hit" | "ko" | "explode" | "spike"
+  kind: string; // "hit" | "ko" | "explode" | "spike" | "shield"
+  amount: number; // 피해량(0이면 표시 안 함)
 }
 
 export interface FlickObstacle {
@@ -107,7 +108,7 @@ export const POWER_INFO: Record<string, { name: string; emoji: string; desc: str
   pierce: { name: "관통", emoji: "🏹", desc: "충돌해도 멈추지 않고 뚫고 지나감" },
   iron: { name: "강철", emoji: "🛡️", desc: "방어력↑·무거움(잘 안 밀림)·체력↑" },
   shield: { name: "보호막", emoji: "🔰", desc: "첫 피해 1회 무효" },
-  slingshot: { name: "슬링샷", emoji: "🎯", desc: "발사 세기 강화(멀리)" },
+  slingshot: { name: "슬링샷", emoji: "🎯", desc: "발사 세기 제한 없음 — 드래그한 만큼 강하게(작게 치면 약함)" },
   heavy: { name: "헤비샷", emoji: "🔨", desc: "공격력↑·무거움" },
   lifesteal: { name: "흡혈", emoji: "🧛", desc: "입힌 피해의 절반만큼 체력 회복" },
   spikes: { name: "가시", emoji: "🌵", desc: "맞을 때 공격자에게 반동 피해" },

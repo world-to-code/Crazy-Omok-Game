@@ -214,7 +214,8 @@ pub struct FlickEvent {
     pub frame: u32,
     pub x: f32,
     pub y: f32,
-    pub kind: String, // "hit" | "ko" | "explode" | "spike"
+    pub kind: String, // "hit" | "ko" | "explode" | "spike" | "shield"
+    pub amount: i32,  // 피해량(0이면 표시 안 함)
 }
 
 #[derive(Debug, Clone, Serialize)]

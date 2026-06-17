@@ -27,7 +27,8 @@ pub fn predict_path(
 ) -> Vec<f32> {
     let mut x = sx;
     let mut y = sy;
-    let speed = power.clamp(0.0, 1.0) * MAX_SPEED * speed_mult;
+    // power는 무제한 능력(슬링샷)에서 1을 넘을 수 있으므로 상한을 넉넉히.
+    let speed = power.clamp(0.0, 3.0) * MAX_SPEED * speed_mult;
     let mut vx = angle.cos() * speed;
     let mut vy = angle.sin() * speed;
 
