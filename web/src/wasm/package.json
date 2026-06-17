@@ -1,0 +1,15 @@
+{
+  "name": "flick-wasm",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "flick_wasm_bg.wasm",
+    "flick_wasm.js",
+    "flick_wasm.d.ts"
+  ],
+  "main": "flick_wasm.js",
+  "types": "flick_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

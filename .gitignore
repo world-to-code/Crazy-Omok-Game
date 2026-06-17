@@ -7,3 +7,5 @@ web/dist/
 server/.env
 *.env
 !.env.example
+
+web/wasm-flick/target/

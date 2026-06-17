@@ -7,16 +7,16 @@ use uuid::Uuid;
 
 use crate::protocol::FlickMarble;
 
-pub const ARENA_R: f64 = 320.0;
-pub const MARBLE_R: f64 = 20.0;
-const MAX_SPEED: f64 = 1500.0; // power=1 일 때 발사 속도(units/s)
+pub const ARENA_R: f64 = 1450.0; // 오픈월드급(기존 대비 약 20배 면적)
+pub const MARBLE_R: f64 = 26.0;
+const MAX_SPEED: f64 = 2600.0; // power=1 일 때 발사 속도(units/s)
 const DT: f64 = 1.0 / 120.0;
-const FRICTION: f64 = 1.7; // 속도 감쇠 계수
+const FRICTION: f64 = 1.0; // 속도 감쇠 계수(낮을수록 멀리 미끄러짐)
 const RESTITUTION: f64 = 0.92;
-const MAX_STEPS: usize = 720; // 최대 6초
-const KEYFRAME_EVERY: usize = 5; // 약 24fps로 기록
-const STOP_SPEED: f64 = 6.0;
-const DMG_K: f64 = 0.0045; // 충돌속도→데미지 계수
+const MAX_STEPS: usize = 900;
+const KEYFRAME_EVERY: usize = 6; // 약 20fps로 기록
+const STOP_SPEED: f64 = 8.0;
+const DMG_K: f64 = 0.0022; // 충돌속도→데미지 계수 (속도가 빨라져 한 방 KO 방지로 하향)
 const WALL_RESTITUTION: f64 = 0.9;
 const EXPLOSION_R: f64 = 120.0;
 
@@ -333,10 +333,16 @@ impl FlickGame {
         self.marbles[j].vx += imp * nx / mj * kj;
         self.marbles[j].vy += imp * ny / mj * kj;
 
-        // 데미지 (서로 상대 공격력으로)
+        // 데미지: 발사한 알(공격자)은 피해를 받지 않고, 맞은 쪽만 HP가 닳는다.
         let impact = vn.abs();
-        self.damage(i, j, impact);
-        self.damage(j, i, impact);
+        let i_shooter = self.marbles[i].owner == shooter;
+        let j_shooter = self.marbles[j].owner == shooter;
+        if !i_shooter {
+            self.damage(i, j, impact, shooter);
+        }
+        if !j_shooter {
+            self.damage(j, i, impact, shooter);
+        }
 
         // 폭발: 발사자의 첫 충돌 시 광역 넉백+데미지
         let i_is_shooter = self.marbles[i].owner == shooter && self.marbles[i].power == "explosion";
@@ -349,7 +355,8 @@ impl FlickGame {
     }
 
     /// attacker(a)가 victim(v)에게 충돌속도 impact로 입히는 피해.
-    fn damage(&mut self, v: usize, a: usize, impact: f64) {
+    /// 발사한 알(shooter)은 어떤 경우에도 피해를 받지 않는다(가시 반동 포함).
+    fn damage(&mut self, v: usize, a: usize, impact: f64, shooter: Uuid) {
         let atk = self.marbles[a].atk as f64;
         let def = self.marbles[v].def as f64;
         let mut dmg = (impact * DMG_K * atk - def).max(0.0).round() as i32;
@@ -361,8 +368,8 @@ impl FlickGame {
             self.marbles[v].shield = false;
             return;
         }
-        // 가시: 피해를 입힌 공격자에게 반동 피해
-        if self.marbles[v].power == "spikes" {
+        // 가시: 피해를 입힌 공격자에게 반동 피해 (단, 발사자는 무피해)
+        if self.marbles[v].power == "spikes" && self.marbles[a].owner != shooter {
             let recoil = (dmg / 3).max(1);
             self.apply_hp(a, -recoil);
         }

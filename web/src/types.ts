@@ -137,6 +137,7 @@ export type ServerMsg =
       winner: string | null;
     }
   | { type: "FlickDraft"; options: string[] }
+  | { type: "FlickAiming"; owner: string; angle: number; power: number }
   | {
       type: "FlickResolved";
       ids: string[];
@@ -185,4 +186,5 @@ export type ClientMsg =
   | { type: "LeaveRoom" }
   | { type: "KickPlayer"; player_id: string }
   | { type: "FlickDraftPick"; power: string }
-  | { type: "FlickAim"; angle: number; power: number };
+  | { type: "FlickAim"; angle: number; power: number }
+  | { type: "FlickAiming"; angle: number; power: number };

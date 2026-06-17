@@ -84,6 +84,8 @@ pub enum ClientMsg {
     FlickDraftPick { power: String },
     /// (알까기) 본인 차례에 발사 (angle 라디안, power 0~1).
     FlickAim { angle: f64, power: f64 },
+    /// (알까기) 조준 중 미리보기 공유 (다른 사람들이 방향/세기를 봄).
+    FlickAiming { angle: f64, power: f64 },
 }
 
 /// 서버 → 클라이언트
@@ -178,6 +180,12 @@ pub enum ServerMsg {
         deadline_ms: Option<u64>,
         server_now_ms: u64,
         winner: Option<Uuid>,
+    },
+    /// (알까기) 현재 차례 플레이어의 조준 미리보기.
+    FlickAiming {
+        owner: Uuid,
+        angle: f64,
+        power: f64,
     },
     /// (알까기) 발사 결과 — 위치 타임라인 + 갱신된 마블 상태 + 다음 차례.
     FlickResolved {

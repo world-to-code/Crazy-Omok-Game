@@ -759,6 +759,25 @@ fn handle_client_msg(
             });
             spawn_flick_timer(state.clone(), code, generation, limit);
         }
+
+        ClientMsg::FlickAiming { angle, power } => {
+            let Some((code, pid)) = session.clone() else {
+                return;
+            };
+            let mut rooms = state.rooms();
+            let Some(room) = rooms.get_mut(&code) else {
+                return;
+            };
+            if room.game != GameKind::Flick || room.current_turn_any() != Some(pid) {
+                return;
+            }
+            // 모두에게 조준 미리보기 전달(본인은 클라에서 무시).
+            room.broadcast(&ServerMsg::FlickAiming {
+                owner: pid,
+                angle,
+                power,
+            });
+        }
     }
 }
 

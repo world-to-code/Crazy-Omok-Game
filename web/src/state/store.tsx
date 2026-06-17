@@ -52,6 +52,7 @@ export interface GameState {
   drafting: boolean;
   draftOptions: string[] | null;
   flickResolve: { ids: string[]; timeline: [number, number][][]; seq: number } | null;
+  othersAim: { owner: string; angle: number; power: number } | null;
 }
 
 const initial: GameState = {
@@ -86,6 +87,7 @@ const initial: GameState = {
   drafting: false,
   draftOptions: null,
   flickResolve: null,
+  othersAim: null,
 };
 
 const key = (x: number, y: number) => `${x},${y}`;
@@ -145,6 +147,7 @@ const IN_ROOM_MSGS = new Set([
   "FlickSnapshot",
   "FlickDraft",
   "FlickResolved",
+  "FlickAiming",
 ]);
 
 function applyMsg(s: GameState, m: ServerMsg): GameState {
@@ -276,12 +279,17 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         currentTurn: m.current_turn,
         deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
         winner: m.winner,
+        othersAim: null,
         screen,
         code: m.settings.code,
       };
     }
     case "FlickDraft":
       return { ...s, draftOptions: m.options };
+    case "FlickAiming":
+      return m.owner === s.myId
+        ? s
+        : { ...s, othersAim: { owner: m.owner, angle: m.angle, power: m.power } };
     case "FlickResolved":
       return {
         ...s,
@@ -290,6 +298,7 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
         status: m.status,
         winner: m.winner,
+        othersAim: null,
         flickResolve: {
           ids: m.ids,
           timeline: m.timeline,
