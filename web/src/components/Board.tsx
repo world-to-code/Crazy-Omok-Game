@@ -17,22 +17,32 @@ export default function Board() {
     status === "playing" &&
     (isTeam ? currentTeam != null && currentTeam === myTeam : currentTurn === myId);
 
-  // 보드 영역(스크롤 컨테이너)의 가용 너비를 측정해 칸 크기를 거기에 맞춘다.
-  const [avail, setAvail] = useState(700);
+  // 보드 영역의 가용 가로/세로를 측정해, 둘 다 화면에 들어가도록 칸 크기를 맞춘다.
+  const [avail, setAvail] = useState({ w: 700, h: 500 });
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const update = () => setAvail(Math.max(200, el.clientWidth - 24));
+    const update = () => {
+      const w = Math.max(200, el.clientWidth - 24);
+      // 보드 영역 위쪽 끝부터 화면 아래까지를 세로 가용 높이로 (페이지 스크롤 방지).
+      const top = el.getBoundingClientRect().top;
+      const h = Math.max(200, window.innerHeight - top - 16);
+      setAvail((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
   }, []);
 
-  // 확대/축소 배율 (기본 1 = 가용 너비에 꽉 채움)
+  // 확대/축소 배율 (기본 1 = 화면에 꽉 채우되 가로·세로 모두 안 넘침)
   const [zoom, setZoom] = useState(1);
-  const fitCell = avail / (n + 1);
-  const cell = clamp(Math.round(fitCell * zoom), 6, 140);
+  const fitCell = Math.min(avail.w, avail.h) / (n + 1);
+  const cell = clamp(Math.round(fitCell * zoom), 6, 200);
 
   const margin = Math.max(cell * 0.7, 10);
   const px = (i: number) => margin + i * cell;
@@ -146,7 +156,7 @@ export default function Board() {
           </span>
         )}
       </div>
-      <div className="board-scroll" ref={scrollRef}>
+      <div className="board-scroll" ref={scrollRef} style={{ maxHeight: avail.h }}>
         <canvas ref={canvasRef} onClick={onClick} style={{ cursor: myTurn ? "pointer" : "default" }} />
       </div>
     </div>
