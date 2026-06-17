@@ -1,8 +1,15 @@
+import { useEffect } from "react";
 import { useGame } from "../state/store";
+import { FLICK_ENABLED } from "../config";
 
 export default function Home() {
   const { state, setScreen, selectGame } = useGame();
   const g = state.selectedGame;
+
+  // 알까기가 비활성화된 빌드에서 혹시 선택돼 있으면 오목으로 되돌림.
+  useEffect(() => {
+    if (!FLICK_ENABLED && g === "flick") selectGame("omok");
+  }, [g, selectGame]);
 
   return (
     <div className="home card">
@@ -20,11 +27,12 @@ export default function Home() {
         </button>
         <button
           className={`game-card${g === "flick" ? " active" : ""}`}
-          onClick={() => selectGame("flick")}
+          disabled={!FLICK_ENABLED}
+          onClick={() => FLICK_ENABLED && selectGame("flick")}
         >
           <div className="game-emoji">🌀💥</div>
-          <div className="game-title">초능력 알까기</div>
-          <div className="game-sub">턴제 물리 배틀 · 2~10명</div>
+          <div className="game-title">초능력 알까기 {!FLICK_ENABLED && "🔒"}</div>
+          <div className="game-sub">{FLICK_ENABLED ? "턴제 물리 배틀 · 2~10명" : "준비 중 (곧 공개)"}</div>
         </button>
       </div>
 
