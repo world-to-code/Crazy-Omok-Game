@@ -52,7 +52,13 @@ async fn main() {
         .unwrap_or_else(|e| panic!("{addr} 바인딩 실패: {e}"));
     println!("오목 서버 실행 중: http://{addr}");
     println!("초대 주소: {}", public_base(&public_host, public_port));
-    axum::serve(listener, app).await.expect("서버 실행 실패");
+    // 클라이언트 IP를 얻기 위해 ConnectInfo 사용.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .expect("서버 실행 실패");
 }
 
 /// 초대 링크에 쓸 공개 호스트/포트를 반환.

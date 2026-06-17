@@ -55,6 +55,10 @@ pub struct Player {
     pub connected: bool,
     /// 팀전에서의 소속 팀 (0/1), 미배정이면 None. 클래식에서는 항상 None.
     pub team: Option<u8>,
+    /// 마지막 채팅 전송 시각(ms). 채팅 속도 제한용.
+    pub last_chat_ms: u64,
+    /// 접속 IP (프록시 경유 시 "클라IP (proxy 프록시IP)" 형태).
+    pub ip: String,
     pub tx: Tx,
 }
 
@@ -193,6 +197,7 @@ impl Room {
                 color_index: p.color_index,
                 connected: p.connected,
                 team: p.team,
+                ip: p.ip.clone(),
             })
             .collect()
     }

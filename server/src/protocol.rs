@@ -188,6 +188,7 @@ pub struct PlayerInfo {
     pub color_index: u8,
     pub connected: bool,
     pub team: Option<u8>,
+    pub ip: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

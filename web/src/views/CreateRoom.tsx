@@ -70,11 +70,11 @@ export default function CreateRoom() {
         </div>
         <label>
           내 닉네임
-          <input value={nickname} maxLength={20} onChange={(e) => setNickname(e.target.value)} placeholder="방장" />
+          <input value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} placeholder="방장" />
         </label>
         <label>
           방 이름
-          <input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} placeholder="오목방" />
+          <input value={name} maxLength={20} onChange={(e) => setName(e.target.value)} placeholder="오목방" />
         </label>
         {mode === "classic" ? (
           <label>

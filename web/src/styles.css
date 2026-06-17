@@ -572,6 +572,13 @@ input[type="range"] {
 .player-name {
   font-weight: 600;
 }
+.player-ip {
+  display: block;
+  font-weight: 400;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .player-tags {
   margin-left: auto;
   display: flex;

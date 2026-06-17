@@ -24,7 +24,7 @@ export default function JoinLink() {
           내 닉네임
           <input
             value={nickname}
-            maxLength={20}
+            maxLength={12}
             autoFocus
             onChange={(e) => setNickname(e.target.value)}
             placeholder="게스트"

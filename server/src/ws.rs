@@ -1,9 +1,12 @@
 //! WebSocket 연결 핸들러와 메시지 라우팅, 턴 타이머.
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::connect_info::ConnectInfo;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::response::Response;
 use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
@@ -14,11 +17,41 @@ use crate::protocol::*;
 use crate::state::*;
 use rand::seq::SliceRandom;
 
-pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+/// 입력 글자 수 제한.
+const MAX_NICKNAME: usize = 12;
+const MAX_ROOM_NAME: usize = 20;
+const MAX_CHAT: usize = 50;
+/// 채팅 속도 제한 (ms).
+const CHAT_COOLDOWN_MS: u64 = 500;
+
+pub async fn ws_handler(
+    ws: WebSocketUpgrade,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> Response {
+    let ip = client_ip(&headers, peer);
+    ws.on_upgrade(move |socket| handle_socket(socket, state, ip))
 }
 
-async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
+/// 접속 IP 표시 문자열. 프록시(X-Forwarded-For) 경유면 원 클라이언트 IP와
+/// 프록시 IP를 함께 보여준다.
+fn client_ip(headers: &HeaderMap, peer: SocketAddr) -> String {
+    let peer_ip = peer.ip().to_string();
+    let forwarded = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    match forwarded {
+        Some(client) if client != peer_ip => format!("{client} (proxy {peer_ip})"),
+        Some(client) => client,
+        None => peer_ip,
+    }
+}
+
+async fn handle_socket(socket: WebSocket, state: Arc<AppState>, ip: String) {
     let (mut sink, mut stream) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<ServerMsg>();
 
@@ -52,7 +85,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                 continue;
             }
         };
-        handle_client_msg(client_msg, &state, &tx, &mut session);
+        handle_client_msg(client_msg, &state, &tx, &mut session, &ip);
     }
 
     // 연결 종료: 자리 유지(소프트) 또는 제거(로비) 처리.
@@ -73,6 +106,7 @@ fn handle_client_msg(
     state: &Arc<AppState>,
     tx: &Tx,
     session: &mut Option<(String, Uuid)>,
+    ip: &str,
 ) {
     match msg {
         ClientMsg::ListRooms { query } => {
@@ -109,8 +143,8 @@ fn handle_client_msg(
             let board_size = board_size.clamp(5, 100);
             let win_length = win_length.clamp(3, 10);
             let turn_limit_secs = turn_limit_secs.clamp(5, 600);
-            let name = trim_len(name, 40, "방");
-            let nickname = trim_len(nickname, 20, "익명");
+            let name = trim_len(name, MAX_ROOM_NAME, "오목방");
+            let nickname = trim_len(nickname, MAX_NICKNAME, "익명");
             let password = password.filter(|p| !p.is_empty());
 
             let mut rooms = state.rooms.lock().unwrap();
@@ -125,6 +159,8 @@ fn handle_client_msg(
                 color_index: 0,
                 connected: true,
                 team: None,
+                last_chat_ms: 0,
+                ip: ip.to_string(),
                 tx: tx.clone(),
             };
             let room = Room {
@@ -164,7 +200,7 @@ fn handle_client_msg(
         }
 
         ClientMsg::JoinByCode { code, nickname } => {
-            join_room(state, tx, session, &code, nickname, None, false);
+            join_room(state, tx, session, &code, nickname, None, false, ip);
         }
 
         ClientMsg::JoinBySearch {
@@ -172,7 +208,7 @@ fn handle_client_msg(
             nickname,
             password,
         } => {
-            join_room(state, tx, session, &code, nickname, password, true);
+            join_room(state, tx, session, &code, nickname, password, true, ip);
         }
 
         ClientMsg::Reconnect { code, player_id } => {
@@ -187,6 +223,7 @@ fn handle_client_msg(
             };
             player.connected = true;
             player.tx = tx.clone();
+            player.ip = ip.to_string();
             *session = Some((code.clone(), player_id));
             let _ = tx.send(ServerMsg::Joined {
                 player_id,
@@ -228,7 +265,7 @@ fn handle_client_msg(
             room.board_size = board_size.clamp(5, 100);
             room.win_length = win_length.clamp(3, 10);
             room.turn_limit_secs = turn_limit_secs.clamp(5, 600);
-            room.name = trim_len(name, 40, "오목방");
+            room.name = trim_len(name, MAX_ROOM_NAME, "오목방");
             // password: None = 변경 안 함, Some("") = 제거, Some(x) = 설정.
             if let Some(p) = password {
                 room.password = if p.is_empty() { None } else { Some(p) };
@@ -488,22 +525,29 @@ fn handle_client_msg(
             let Some((code, pid)) = session.clone() else {
                 return;
             };
-            let text = trim_len(text, 500, "");
+            let text = trim_len(text, MAX_CHAT, "");
             if text.is_empty() {
                 return;
             }
-            let rooms = state.rooms.lock().unwrap();
-            let Some(room) = rooms.get(&code) else {
+            let mut rooms = state.rooms.lock().unwrap();
+            let Some(room) = rooms.get_mut(&code) else {
                 return;
             };
-            let Some(from_name) = room.find(pid).map(|p| p.nickname.clone()) else {
+            let now = now_ms();
+            let Some(player) = room.find_mut(pid) else {
                 return;
             };
+            // 0.5초 채팅 속도 제한 (도배 방지). 너무 빠르면 조용히 무시.
+            if now.saturating_sub(player.last_chat_ms) < CHAT_COOLDOWN_MS {
+                return;
+            }
+            player.last_chat_ms = now;
+            let from_name = player.nickname.clone();
             room.broadcast(&ServerMsg::Chat {
                 from_id: pid,
                 from_name,
                 text,
-                ts_ms: now_ms(),
+                ts_ms: now,
             });
         }
 
@@ -524,8 +568,9 @@ fn join_room(
     nickname: String,
     password: Option<String>,
     require_password: bool,
+    ip: &str,
 ) {
-    let nickname = trim_len(nickname, 20, "익명");
+    let nickname = trim_len(nickname, MAX_NICKNAME, "익명");
     let mut rooms = state.rooms.lock().unwrap();
     let Some(room) = rooms.get_mut(code) else {
         err(tx, "방을 찾을 수 없습니다");
@@ -556,6 +601,8 @@ fn join_room(
         color_index: color,
         connected: true,
         team: None,
+        last_chat_ms: 0,
+        ip: ip.to_string(),
         tx: tx.clone(),
     });
     *session = Some((code.to_string(), pid));

@@ -58,6 +58,7 @@ export interface PlayerInfo {
   color_index: number;
   connected: boolean;
   team: number | null;
+  ip: string;
 }
 
 export interface RoomSettings {

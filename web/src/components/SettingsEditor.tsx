@@ -56,7 +56,7 @@ export default function SettingsEditor() {
       <div className="form">
         <label>
           방 이름
-          <input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+          <input value={name} maxLength={20} onChange={(e) => setName(e.target.value)} />
         </label>
         <label>
           참가 인원: <b>{maxPlayers}명</b>

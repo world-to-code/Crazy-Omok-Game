@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useGame } from "../state/store";
 
+const MAX_CHAT = 50;
+const CHAT_COOLDOWN_MS = 500;
+
 export default function Chat() {
   const { state, send } = useGame();
   const [text, setText] = useState("");
+  const [cooling, setCooling] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -13,10 +17,13 @@ export default function Chat() {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    const t = text.trim();
-    if (!t) return;
+    const t = text.trim().slice(0, MAX_CHAT);
+    if (!t || cooling) return;
     send({ type: "Chat", text: t });
     setText("");
+    // 0.5초 속도 제한 (서버에서도 강제)
+    setCooling(true);
+    setTimeout(() => setCooling(false), CHAT_COOLDOWN_MS);
   }
 
   return (
@@ -34,11 +41,11 @@ export default function Chat() {
       <form className="chat-input" onSubmit={submit}>
         <input
           value={text}
-          maxLength={500}
-          placeholder="메시지 입력…"
+          maxLength={MAX_CHAT}
+          placeholder={`메시지 (최대 ${MAX_CHAT}자)`}
           onChange={(e) => setText(e.target.value)}
         />
-        <button type="submit">전송</button>
+        <button type="submit" disabled={cooling || !text.trim()}>전송</button>
       </form>
     </div>
   );

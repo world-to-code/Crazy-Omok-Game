@@ -23,6 +23,7 @@ export default function PlayerList() {
                     <span className="player-name">
                       {p.nickname}
                       {p.id === myId && " (나)"}
+                      {p.ip && <span className="player-ip">{p.ip}</span>}
                     </span>
                     <span className="player-tags">
                       {settings?.host_id === p.id && <span className="tag host">방장</span>}
@@ -48,6 +49,7 @@ export default function PlayerList() {
                     <span className="player-name">
                       {p.nickname}
                       {p.id === myId && " (나)"}
+                      {p.ip && <span className="player-ip">{p.ip}</span>}
                     </span>
                   </li>
                 ))}
@@ -78,6 +80,7 @@ export default function PlayerList() {
               <span className="player-name">
                 {p.nickname}
                 {p.id === myId && " (나)"}
+                {p.ip && <span className="player-ip">{p.ip}</span>}
               </span>
               <span className="player-tags">
                 <span className="color-name">{COLOR_NAMES[p.color_index]}</span>

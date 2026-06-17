@@ -31,7 +31,7 @@ export default function JoinByCode() {
         </label>
         <label>
           내 닉네임
-          <input value={nickname} maxLength={20} onChange={(e) => setNickname(e.target.value)} placeholder="익명" />
+          <input value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} placeholder="익명" />
         </label>
         <button type="submit" className="primary big">입장</button>
       </form>

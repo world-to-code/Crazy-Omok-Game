@@ -45,7 +45,7 @@ export default function FindRooms() {
       </div>
       <label className="nick-field">
         내 닉네임
-        <input value={nickname} maxLength={20} onChange={(e) => setNickname(e.target.value)} placeholder="익명" />
+        <input value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} placeholder="익명" />
       </label>
 
       <div className="room-list">
