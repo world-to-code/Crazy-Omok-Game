@@ -10,9 +10,10 @@ import { copyText } from "../util/clipboard";
 
 export default function Lobby() {
   const { state, send, leave } = useGame();
-  const { settings, players, myId, status, mode } = state;
+  const { settings, players, myId, status, mode, game } = state;
   const isHost = settings?.host_id === myId;
-  const isTeam = mode === "team";
+  const isFlick = game === "flick";
+  const isTeam = mode === "team" && !isFlick;
 
   const [orderMode, setOrderMode] = useState<"random" | "manual">("random");
   const [manualOrder, setManualOrder] = useState<string[]>([]);
@@ -44,6 +45,10 @@ export default function Lobby() {
   const canStartClassic = players.length >= 2;
 
   function start() {
+    if (isFlick) {
+      send({ type: "StartGame", random: true, order: [], first_team: null });
+      return;
+    }
     if (isTeam) {
       if (firstTeam === "random") send({ type: "StartGame", random: true, order: [], first_team: null });
       else send({ type: "StartGame", random: false, order: [], first_team: firstTeam });
@@ -62,6 +67,7 @@ export default function Lobby() {
         <button className="back" onClick={leave}>← 방 나가기</button>
         <h2>
           {settings.name} {isTeam && <span className="mode-pill">🤝 팀전</span>}
+          {isFlick && <span className="mode-pill">🌀 알까기</span>}
         </h2>
         <div className="code-box">
           <span>방 코드</span>
@@ -70,8 +76,14 @@ export default function Lobby() {
         </div>
         <InviteLink />
         <div className="settings-summary">
-          {settings.board_size}×{settings.board_size} 보드 · {settings.win_length}목 승리 ·{" "}
-          차례당 {settings.turn_limit_secs}초 · {isTeam ? "팀전(인원 무제한)" : `최대 ${settings.max_players}명`}{" "}
+          {isFlick ? (
+            <>조준 {settings.turn_limit_secs}초 · 최대 {settings.max_players}명 · 최후 1인 승리 </>
+          ) : (
+            <>
+              {settings.board_size}×{settings.board_size} 보드 · {settings.win_length}목 승리 · 차례당{" "}
+              {settings.turn_limit_secs}초 · {isTeam ? "팀전(인원 무제한)" : `최대 ${settings.max_players}명`}{" "}
+            </>
+          )}
           {settings.has_password ? "· 🔒 비밀방" : ""}
           {isHost && (
             <button className="edit-toggle" onClick={() => setEditing((v) => !v)}>
@@ -88,7 +100,14 @@ export default function Lobby() {
 
         {isHost ? (
           <div className="host-controls">
-            {isTeam ? (
+            {isFlick ? (
+              <>
+                <p className="hint">시작하면 각자 초능력 2개 중 1개를 고르고, 차례대로 알을 튕깁니다.</p>
+                <button className="primary big" disabled={players.length < 2} onClick={start}>
+                  {players.length < 2 ? "2명 이상 필요" : status === "finished" ? "다시 시작" : "게임 시작"}
+                </button>
+              </>
+            ) : isTeam ? (
               <>
                 <h3>선공 팀</h3>
                 <div className="order-mode">

@@ -6,6 +6,7 @@ import JoinByCode from "./views/JoinByCode";
 import FindRooms from "./views/FindRooms";
 import Lobby from "./views/Lobby";
 import Game from "./views/Game";
+import FlickGame from "./views/FlickGame";
 import JoinLink from "./views/JoinLink";
 
 export default function App() {
@@ -26,12 +27,12 @@ export default function App() {
           ⚠️ {state.error}
         </div>
       )}
-      {render(state.screen)}
+      {render(state.screen, state.game)}
     </div>
   );
 }
 
-function render(screen: string) {
+function render(screen: string, game: string) {
   switch (screen) {
     case "create":
       return <CreateRoom />;
@@ -44,7 +45,7 @@ function render(screen: string) {
     case "lobby":
       return <Lobby />;
     case "game":
-      return <Game />;
+      return game === "flick" ? <FlickGame /> : <Game />;
     default:
       return <Home />;
   }

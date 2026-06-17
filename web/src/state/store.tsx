@@ -9,6 +9,7 @@ import {
 import type {
   ChatLine,
   ClientMsg,
+  FlickMarble,
   PlayerInfo,
   RoomBrief,
   RoomSettings,
@@ -42,6 +43,15 @@ export interface GameState {
   chat: ChatLine[];
   error: string | null;
   linkCode: string | null;
+  // 게임 종류
+  game: string; // 현재 방의 게임 ("omok" | "flick")
+  selectedGame: "omok" | "flick"; // 메인에서 고른 게임
+  // 알까기
+  arenaR: number;
+  marbles: FlickMarble[];
+  drafting: boolean;
+  draftOptions: string[] | null;
+  flickResolve: { ids: string[]; timeline: [number, number][][]; seq: number } | null;
 }
 
 const initial: GameState = {
@@ -69,6 +79,13 @@ const initial: GameState = {
   chat: [],
   error: null,
   linkCode: null,
+  game: "omok",
+  selectedGame: "omok",
+  arenaR: 320,
+  marbles: [],
+  drafting: false,
+  draftOptions: null,
+  flickResolve: null,
 };
 
 const key = (x: number, y: number) => `${x},${y}`;
@@ -78,6 +95,7 @@ type Action =
   | { kind: "connected"; value: boolean }
   | { kind: "screen"; screen: Screen }
   | { kind: "linkJoin"; code: string }
+  | { kind: "selectGame"; game: "omok" | "flick" }
   | { kind: "clearError" }
   | { kind: "reset" };
 
@@ -89,10 +107,18 @@ function reducer(s: GameState, a: Action): GameState {
       return { ...s, screen: a.screen };
     case "linkJoin":
       return { ...s, screen: "joinLink", linkCode: a.code };
+    case "selectGame":
+      return { ...s, selectedGame: a.game };
     case "clearError":
       return { ...s, error: null };
     case "reset":
-      return { ...initial, connected: s.connected, screen: "home", roomList: s.roomList };
+      return {
+        ...initial,
+        connected: s.connected,
+        screen: "home",
+        roomList: s.roomList,
+        selectedGame: s.selectedGame,
+      };
     case "msg":
       return applyMsg(s, a.msg);
   }
@@ -108,6 +134,9 @@ const IN_ROOM_MSGS = new Set([
   "VoteUpdate",
   "GameOver",
   "Chat",
+  "FlickSnapshot",
+  "FlickDraft",
+  "FlickResolved",
 ]);
 
 function applyMsg(s: GameState, m: ServerMsg): GameState {
@@ -133,6 +162,7 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         ...s,
         settings: m.settings,
         mode: m.settings.mode,
+        game: "omok",
         players: m.players,
         order: m.order,
         board,
@@ -226,6 +256,43 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
           },
         ].slice(-200),
       };
+    case "FlickSnapshot": {
+      const inRoom = s.screen === "lobby" || s.screen === "game";
+      const screen: Screen = inRoom ? s.screen : m.status === "lobby" ? "lobby" : "game";
+      return {
+        ...s,
+        game: "flick",
+        settings: m.settings,
+        mode: m.settings.mode,
+        players: m.players,
+        arenaR: m.arena_r,
+        marbles: m.marbles,
+        status: m.status,
+        drafting: m.drafting,
+        draftOptions: m.drafting ? s.draftOptions : null,
+        currentTurn: m.current_turn,
+        deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
+        winner: m.winner,
+        screen,
+        code: m.settings.code,
+      };
+    }
+    case "FlickDraft":
+      return { ...s, draftOptions: m.options };
+    case "FlickResolved":
+      return {
+        ...s,
+        marbles: m.marbles,
+        currentTurn: m.current_turn,
+        deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
+        status: m.status,
+        winner: m.winner,
+        flickResolve: {
+          ids: m.ids,
+          timeline: m.timeline,
+          seq: (s.flickResolve?.seq ?? 0) + 1,
+        },
+      };
     case "Error":
       return { ...s, error: m.message };
     case "Kicked":
@@ -273,6 +340,7 @@ interface Ctx {
   state: GameState;
   send: (m: ClientMsg) => void;
   setScreen: (s: Screen) => void;
+  selectGame: (g: "omok" | "flick") => void;
   clearError: () => void;
   leave: () => void;
 }
@@ -394,6 +462,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     state,
     send,
     setScreen: (screen) => dispatch({ kind: "screen", screen }),
+    selectGame: (game) => dispatch({ kind: "selectGame", game }),
     clearError: () => dispatch({ kind: "clearError" }),
     leave,
   };

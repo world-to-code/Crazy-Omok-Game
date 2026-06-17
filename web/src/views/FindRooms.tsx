@@ -49,28 +49,37 @@ export default function FindRooms() {
       </label>
 
       <div className="room-list">
-        {state.roomList.length === 0 && <div className="empty">열린 방이 없습니다.</div>}
-        {state.roomList.map((r) => (
-          <div
-            key={r.code}
-            className={`room-item${selected?.code === r.code ? " sel" : ""}`}
-            onClick={() => {
-              setSelected(r);
-              setPassword("");
-            }}
-          >
-            <span className="room-name">
-              {r.has_password ? "🔒 " : ""}
-              {r.mode === "team" ? "🤝 " : ""}
-              {r.name}
-            </span>
-            <span className="room-meta">
-              {r.mode === "team" ? `팀전 · ${r.players}명` : `${r.players}/${r.max_players}명`} · {r.board_size}×
-              {r.board_size} · {r.win_length}목 ·{" "}
-              {r.status === "lobby" ? "대기중" : r.status === "playing" ? "게임중" : "종료"}
-            </span>
-          </div>
-        ))}
+        {(() => {
+          const list = state.roomList.filter((r) => (r.game || "omok") === state.selectedGame);
+          if (list.length === 0) return <div className="empty">열린 방이 없습니다.</div>;
+          return list.map((r) => {
+            const flick = r.game === "flick";
+            return (
+              <div
+                key={r.code}
+                className={`room-item${selected?.code === r.code ? " sel" : ""}`}
+                onClick={() => {
+                  setSelected(r);
+                  setPassword("");
+                }}
+              >
+                <span className="room-name">
+                  {r.has_password ? "🔒 " : ""}
+                  {flick ? "🌀 " : r.mode === "team" ? "🤝 " : ""}
+                  {r.name}
+                </span>
+                <span className="room-meta">
+                  {flick
+                    ? `알까기 · ${r.players}/${r.max_players}명`
+                    : r.mode === "team"
+                      ? `팀전 · ${r.players}명`
+                      : `${r.players}/${r.max_players}명 · ${r.board_size}×${r.board_size} · ${r.win_length}목`}{" "}
+                  · {r.status === "lobby" ? "대기중" : r.status === "playing" ? "게임중" : "종료"}
+                </span>
+              </div>
+            );
+          });
+        })()}
       </div>
 
       {selected && (

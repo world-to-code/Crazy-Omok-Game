@@ -48,6 +48,21 @@ impl GameMode {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum GameKind {
+    Omok,
+    Flick,
+}
+
+impl GameKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GameKind::Omok => "omok",
+            GameKind::Flick => "flick",
+        }
+    }
+}
+
 pub struct Player {
     pub id: Uuid,
     pub nickname: String,
@@ -79,6 +94,9 @@ pub struct Room {
     pub turn_limit_secs: u32,
     pub host_id: Uuid,
     pub mode: GameMode,
+    pub game: GameKind,
+    /// 알까기 게임 상태 (game == Flick 일 때만 Some).
+    pub flick: Option<crate::flick::FlickGame>,
     pub players: Vec<Player>,
     pub order: Vec<Uuid>,
     pub turn_idx: usize,
@@ -111,6 +129,18 @@ impl Room {
         } else {
             None
         }
+    }
+
+    /// (알까기) 현재 차례 플레이어. 드래프트 중이거나 진행 중이 아니면 None.
+    pub fn current_turn_any(&self) -> Option<Uuid> {
+        if self.status == RoomStatus::Playing && self.game == GameKind::Flick {
+            let drafting = self.flick.as_ref().map(|f| f.drafting).unwrap_or(true);
+            if drafting {
+                return None;
+            }
+            return self.order.get(self.turn_idx).copied();
+        }
+        None
     }
 
     pub fn current_team(&self) -> Option<u8> {
@@ -177,6 +207,7 @@ impl Room {
             turn_limit_secs: self.turn_limit_secs,
             host_id: self.host_id,
             mode: self.mode.as_str().to_string(),
+            game: self.game.as_str().to_string(),
         }
     }
 
@@ -191,6 +222,7 @@ impl Room {
             board_size: self.board_size,
             win_length: self.win_length,
             mode: self.mode.as_str().to_string(),
+            game: self.game.as_str().to_string(),
         }
     }
 
@@ -209,6 +241,25 @@ impl Room {
     }
 
     pub fn snapshot(&self) -> ServerMsg {
+        // 알까기는 별도 스냅샷 (로비에서 flick==None 이어도 FlickSnapshot으로).
+        if self.game == GameKind::Flick {
+            let (arena_r, marbles, drafting) = match &self.flick {
+                Some(f) => (f.arena_r as f32, f.infos(), f.drafting),
+                None => (crate::flick::ARENA_R as f32, Vec::new(), false),
+            };
+            return ServerMsg::FlickSnapshot {
+                settings: self.settings(),
+                players: self.player_infos(),
+                arena_r,
+                marbles,
+                status: self.status.as_str().to_string(),
+                drafting,
+                current_turn: self.current_turn_any(),
+                deadline_ms: self.deadline_ms,
+                server_now_ms: now_ms(),
+                winner: self.winner,
+            };
+        }
         let board: Vec<Stone> = self
             .board
             .iter()

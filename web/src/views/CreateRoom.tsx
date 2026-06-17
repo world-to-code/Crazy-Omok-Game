@@ -12,14 +12,15 @@ function recommended(maxPlayers: number): number[] {
 }
 
 export default function CreateRoom() {
-  const { send, setScreen } = useGame();
+  const { state, send, setScreen } = useGame();
+  const isFlick = state.selectedGame === "flick";
   const [mode, setMode] = useState<"classic" | "team">("classic");
   const [name, setName] = useState("");
   const [nickname, setNickname] = useState("");
-  const [maxPlayers, setMaxPlayers] = useState(2);
+  const [maxPlayers, setMaxPlayers] = useState(isFlick ? 4 : 2);
   const [boardSize, setBoardSize] = useState(15);
   const [winLength, setWinLength] = useState(5);
-  const [turnLimit, setTurnLimit] = useState(30);
+  const [turnLimit, setTurnLimit] = useState(isFlick ? 20 : 30);
   const [password, setPassword] = useState("");
 
   const rec = mode === "team" ? [25, 40, 60] : recommended(maxPlayers);
@@ -34,7 +35,7 @@ export default function CreateRoom() {
     e.preventDefault();
     send({
       type: "CreateRoom",
-      name: name.trim() || "오목방",
+      name: name.trim() || (isFlick ? "알까기방" : "오목방"),
       nickname: nickname.trim() || "방장",
       max_players: maxPlayers,
       board_size: boardSize,
@@ -42,7 +43,42 @@ export default function CreateRoom() {
       turn_limit_secs: turnLimit,
       password: password.trim() ? password.trim() : null,
       mode,
+      game: state.selectedGame,
     });
+  }
+
+  // ===== 알까기 방 만들기 =====
+  if (isFlick) {
+    return (
+      <div className="card form-card">
+        <button className="back" onClick={() => setScreen("home")}>← 뒤로</button>
+        <h2>🌀 알까기 방 만들기</h2>
+        <form onSubmit={submit} className="form">
+          <label>
+            내 닉네임
+            <input value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} placeholder="방장" />
+          </label>
+          <label>
+            방 이름
+            <input value={name} maxLength={20} onChange={(e) => setName(e.target.value)} placeholder="알까기방" />
+          </label>
+          <label>
+            참가 인원: <b>{maxPlayers}명</b>
+            <input type="range" min={2} max={10} value={maxPlayers} onChange={(e) => setMaxPlayers(+e.target.value)} />
+            <small>시작 시 초능력 2개 중 1개를 골라 알까기로 겨룹니다. 최후 1인 승리!</small>
+          </label>
+          <label>
+            조준 제한시간: <b>{turnLimit}초</b>
+            <input type="range" min={5} max={60} step={5} value={turnLimit} onChange={(e) => setTurnLimit(+e.target.value)} />
+          </label>
+          <label>
+            비밀번호 (선택)
+            <input value={password} maxLength={30} onChange={(e) => setPassword(e.target.value)} placeholder="없으면 비워두세요" />
+          </label>
+          <button type="submit" className="primary big">방 만들기</button>
+        </form>
+      </div>
+    );
   }
 
   return (

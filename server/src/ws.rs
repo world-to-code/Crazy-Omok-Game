@@ -149,16 +149,21 @@ fn handle_client_msg(
             turn_limit_secs,
             password,
             mode,
+            game,
         } => {
+            let game = match game.as_deref() {
+                Some("flick") => GameKind::Flick,
+                _ => GameKind::Omok,
+            };
             let mode = match mode.as_deref() {
                 Some("team") => GameMode::Team,
                 _ => GameMode::Classic,
             };
-            // 팀전은 인원 무제한(과도한 사용 방지로 100 상한), 클래식은 2~20.
-            let max_players = if mode == GameMode::Team {
-                100
-            } else {
-                max_players.clamp(2, 20)
+            // 인원 상한: 알까기 2~10, 오목 팀전 무제한(100), 오목 클래식 2~20.
+            let max_players = match game {
+                GameKind::Flick => max_players.clamp(2, 10),
+                GameKind::Omok if mode == GameMode::Team => 100,
+                GameKind::Omok => max_players.clamp(2, 20),
             };
             let board_size = board_size.clamp(5, 100);
             let win_length = win_length.clamp(3, 10);
@@ -196,6 +201,8 @@ fn handle_client_msg(
                 turn_limit_secs,
                 host_id: pid,
                 mode,
+                game,
+                flick: None,
                 players: vec![host],
                 order: Vec::new(),
                 turn_idx: 0,
@@ -327,6 +334,50 @@ fn handle_client_msg(
             room.winner_team = None;
             room.winning_line.clear();
             room.votes.clear();
+
+            // ===== 알까기 =====
+            if room.game == GameKind::Flick {
+                let connected: Vec<Uuid> =
+                    room.players.iter().filter(|p| p.connected()).map(|p| p.id).collect();
+                if connected.len() < 2 {
+                    err(tx, "2명 이상이어야 시작할 수 있습니다");
+                    return;
+                }
+                let mut ids = if random || !is_permutation(&order, &room.players) {
+                    connected.clone()
+                } else {
+                    order.clone()
+                };
+                if random {
+                    ids = shuffle(ids);
+                }
+                room.order = ids;
+                room.turn_idx = 0;
+                room.status = RoomStatus::Playing;
+                let colors: std::collections::HashMap<Uuid, u8> =
+                    room.players.iter().map(|p| (p.id, p.color_index)).collect();
+                room.flick = Some(crate::flick::FlickGame::new(&room.order, &colors));
+                room.turn_generation += 1;
+                let generation = room.turn_generation;
+                let limit = room.turn_limit_secs;
+                room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
+                // 각자에게 드래프트 제시
+                if let Some(f) = &room.flick {
+                    for p in &room.players {
+                        if let Some(d) = f.draft.get(&p.id) {
+                            for (_, t) in &p.conns {
+                                let _ = t.send(ServerMsg::FlickDraft {
+                                    options: d.options.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+                let snap = room.snapshot();
+                room.broadcast(&snap);
+                spawn_flick_timer(state.clone(), code, generation, limit);
+                return;
+            }
 
             if room.mode == GameMode::Team {
                 if room.team_connected(0) == 0 || room.team_connected(1) == 0 {
@@ -616,7 +667,177 @@ fn handle_client_msg(
             // 방에서 제거 (진행 중이 아니므로 cleanup_departed가 자리 제거).
             cleanup_departed(&mut rooms, state, &code, player_id);
         }
+
+        ClientMsg::FlickDraftPick { power } => {
+            let Some((code, pid)) = session.clone() else {
+                return;
+            };
+            if !crate::flick::is_valid_power(&power) {
+                return;
+            }
+            let mut rooms = state.rooms();
+            let Some(room) = rooms.get_mut(&code) else {
+                return;
+            };
+            if room.game != GameKind::Flick || room.status != RoomStatus::Playing {
+                return;
+            }
+            let mut done = false;
+            if let Some(f) = room.flick.as_mut() {
+                if !f.drafting {
+                    return;
+                }
+                f.pick(pid, &power);
+                if f.all_picked() {
+                    f.drafting = false;
+                    done = true;
+                }
+            }
+            if done {
+                start_flick_first_turn(state, room, &code);
+            } else {
+                let snap = room.snapshot();
+                room.broadcast(&snap);
+            }
+        }
+
+        ClientMsg::FlickAim { angle, power } => {
+            let Some((code, pid)) = session.clone() else {
+                return;
+            };
+            let mut rooms = state.rooms();
+            let Some(room) = rooms.get_mut(&code) else {
+                return;
+            };
+            if room.game != GameKind::Flick || room.status != RoomStatus::Playing {
+                return;
+            }
+            if room.current_turn_any() != Some(pid) {
+                err(tx, "당신의 차례가 아닙니다");
+                return;
+            }
+            let Some(f) = room.flick.as_mut() else {
+                return;
+            };
+            let (ids, timeline) = f.resolve(pid, angle, power);
+            let marbles = f.infos();
+            let alive = f.alive_count();
+            let winner = f.last_alive();
+
+            if winner.is_some() || alive == 0 {
+                room.status = RoomStatus::Finished;
+                room.winner = winner;
+                room.deadline_ms = None;
+                room.broadcast(&ServerMsg::FlickResolved {
+                    ids,
+                    timeline,
+                    marbles,
+                    current_turn: None,
+                    deadline_ms: None,
+                    server_now_ms: now_ms(),
+                    status: "finished".to_string(),
+                    winner,
+                });
+                return;
+            }
+
+            // 다음 차례로
+            let n = room.order.len();
+            room.turn_idx = (room.turn_idx + 1) % n;
+            let next = advance_flick_turn(room);
+            let generation = room.turn_generation;
+            let limit = room.turn_limit_secs;
+            room.broadcast(&ServerMsg::FlickResolved {
+                ids,
+                timeline,
+                marbles,
+                current_turn: next,
+                deadline_ms: room.deadline_ms,
+                server_now_ms: now_ms(),
+                status: "playing".to_string(),
+                winner: None,
+            });
+            spawn_flick_timer(state.clone(), code, generation, limit);
+        }
     }
+}
+
+/// (알까기) turn_idx에서 시작해 살아있고 연결된 플레이어를 찾아 차례 확정.
+/// generation/deadline 갱신, 그 id 반환. 없으면 None.
+fn advance_flick_turn(room: &mut Room) -> Option<Uuid> {
+    let n = room.order.len();
+    if n == 0 {
+        return None;
+    }
+    for _ in 0..n {
+        let id = room.order[room.turn_idx];
+        let alive = room
+            .flick
+            .as_ref()
+            .and_then(|f| f.marble(id))
+            .map(|m| m.alive)
+            .unwrap_or(false);
+        let connected = room.find(id).map(|p| p.connected()).unwrap_or(false);
+        if alive && connected {
+            room.turn_generation += 1;
+            room.deadline_ms = Some(now_ms() + room.turn_limit_secs as u64 * 1000);
+            return Some(id);
+        }
+        room.turn_idx = (room.turn_idx + 1) % n;
+    }
+    None
+}
+
+/// 드래프트 완료 후 첫 차례 시작.
+fn start_flick_first_turn(state: &Arc<AppState>, room: &mut Room, code: &str) {
+    room.turn_idx = 0;
+    if advance_flick_turn(room).is_some() {
+        let generation = room.turn_generation;
+        let limit = room.turn_limit_secs;
+        let snap = room.snapshot();
+        room.broadcast(&snap);
+        spawn_flick_timer(state.clone(), code.to_string(), generation, limit);
+    }
+}
+
+/// (알까기) 드래프트/차례 시간 초과 처리 타이머.
+fn spawn_flick_timer(state: Arc<AppState>, code: String, generation: u64, limit_secs: u32) {
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(limit_secs as u64)).await;
+        let mut rooms = state.rooms();
+        let Some(room) = rooms.get_mut(&code) else {
+            return;
+        };
+        if room.game != GameKind::Flick
+            || room.status != RoomStatus::Playing
+            || room.turn_generation != generation
+        {
+            return;
+        }
+        let drafting = room.flick.as_ref().map(|f| f.drafting).unwrap_or(false);
+        if drafting {
+            // 드래프트 미선택자 자동 선택 후 첫 차례 시작.
+            if let Some(f) = room.flick.as_mut() {
+                f.auto_pick_remaining();
+                f.drafting = false;
+            }
+            start_flick_first_turn(&state, room, &code);
+            return;
+        }
+        // 차례 시간 초과 → 발사 못 함, 다음 차례로.
+        let n = room.order.len();
+        if n == 0 {
+            return;
+        }
+        room.turn_idx = (room.turn_idx + 1) % n;
+        if advance_flick_turn(room).is_some() {
+            let gen = room.turn_generation;
+            let limit = room.turn_limit_secs;
+            let snap = room.snapshot();
+            room.broadcast(&snap);
+            spawn_flick_timer(state.clone(), code.clone(), gen, limit);
+        }
+    });
 }
 
 /// 입장 처리 (코드 입장/검색 입장 공용).
@@ -742,6 +963,7 @@ fn cleanup_departed(
         return;
     };
     let was_turn = room.current_turn() == Some(pid);
+    let was_flick_turn = room.current_turn_any() == Some(pid);
 
     // 진행 중이 아니면(로비/종료) 완전히 제거, 진행 중이면 자리 유지(끊김 표시).
     let removed = room.status != RoomStatus::Playing;
@@ -800,6 +1022,21 @@ fn cleanup_departed(
         let (voters, voted) = room.vote_progress();
         if voters == 0 || voted >= voters {
             resolve_team_turn(state, room, code);
+        }
+    }
+
+    // (알까기) 떠난 사람 차례였다면 다음으로 넘긴다.
+    if room.game == GameKind::Flick && room.status == RoomStatus::Playing && was_flick_turn {
+        let n = room.order.len();
+        if n > 0 {
+            room.turn_idx = (room.turn_idx + 1) % n;
+            if advance_flick_turn(room).is_some() {
+                let gen = room.turn_generation;
+                let limit = room.turn_limit_secs;
+                let snap = room.snapshot();
+                room.broadcast(&snap);
+                spawn_flick_timer(state.clone(), code.to_string(), gen, limit);
+            }
         }
     }
 }

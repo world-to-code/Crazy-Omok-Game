@@ -105,6 +105,134 @@ select:focus {
   margin-top: 26px;
 }
 
+/* 게임 선택 카드 */
+.game-pick {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 18px;
+}
+.game-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 12px;
+  background: var(--panel2);
+  border: 2px solid transparent;
+  border-radius: 14px;
+}
+.game-card.active {
+  border-color: var(--primary);
+  background: #2c3470;
+}
+.game-emoji {
+  font-size: 1.8rem;
+}
+.game-title {
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+.game-sub {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/* 알까기 */
+.flick {
+  width: 80vw;
+  margin-left: calc(50% - 40vw);
+}
+.flick-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 18px;
+  margin-bottom: 14px;
+}
+.flick-body {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+  align-items: start;
+}
+.flick-arena {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.flick-arena canvas {
+  background: #0c0f24;
+  border-radius: 16px;
+}
+.aim-hint {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+.flick-side {
+  display: grid;
+  gap: 16px;
+}
+.marble-stats {
+  display: block;
+  font-weight: 400;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+.player-row.dead {
+  opacity: 0.5;
+}
+
+/* 드래프트 */
+.draft {
+  text-align: center;
+}
+.draft-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+.draft-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  padding: 26px 16px;
+  background: var(--panel2);
+  border: 2px solid #353b6e;
+  border-radius: 16px;
+}
+.draft-card:hover {
+  border-color: var(--primary);
+  background: #2c3470;
+}
+.draft-emoji {
+  font-size: 2.6rem;
+}
+.draft-name {
+  font-weight: 800;
+  font-size: 1.2rem;
+}
+.draft-desc {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 820px) {
+  .flick {
+    width: 100%;
+    margin-left: 0;
+  }
+  .flick-body {
+    grid-template-columns: 1fr;
+  }
+  .game-pick,
+  .draft-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 폼 */
 .form-card {
   max-width: 520px;

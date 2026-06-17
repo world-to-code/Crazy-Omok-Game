@@ -32,6 +32,7 @@ export interface RoomSettings {
   turn_limit_secs: number;
   host_id: string;
   mode: string;
+  game: string;
 }
 
 export interface RoomBrief {
@@ -44,6 +45,7 @@ export interface RoomBrief {
   board_size: number;
   win_length: number;
   mode: string;
+  game: string;
 }
 
 export interface VoteCell {
@@ -51,6 +53,33 @@ export interface VoteCell {
   y: number;
   count: number;
 }
+
+export interface FlickMarble {
+  owner: string;
+  x: number;
+  y: number;
+  r: number;
+  hp: number;
+  max_hp: number;
+  atk: number;
+  def: number;
+  alive: boolean;
+  power: string;
+  shield: boolean;
+  color_index: number;
+}
+
+// 초능력 8종 표시 정보
+export const POWER_INFO: Record<string, { name: string; emoji: string; desc: string }> = {
+  explosion: { name: "폭발", emoji: "💥", desc: "충돌 시 주변에 광역 넉백 + 피해" },
+  pierce: { name: "관통", emoji: "🏹", desc: "충돌해도 멈추지 않고 뚫고 지나감" },
+  iron: { name: "강철", emoji: "🛡️", desc: "방어력↑·무거움(잘 안 밀림)·체력↑" },
+  shield: { name: "보호막", emoji: "🔰", desc: "첫 피해 1회 무효" },
+  slingshot: { name: "슬링샷", emoji: "🎯", desc: "발사 세기 강화(멀리)" },
+  heavy: { name: "헤비샷", emoji: "🔨", desc: "공격력↑·무거움" },
+  lifesteal: { name: "흡혈", emoji: "🧛", desc: "입힌 피해의 절반만큼 체력 회복" },
+  spikes: { name: "가시", emoji: "🌵", desc: "맞을 때 공격자에게 반동 피해" },
+};
 
 export interface Stone {
   x: number;
@@ -93,7 +122,32 @@ export type ServerMsg =
   | { type: "GameOver"; winner: string | null; winning_team: number | null; winning_line: [number, number][] }
   | { type: "Chat"; from_id: string; from_name: string; text: string; ts_ms: number }
   | { type: "Error"; message: string }
-  | { type: "Kicked" };
+  | { type: "Kicked" }
+  | {
+      type: "FlickSnapshot";
+      settings: RoomSettings;
+      players: PlayerInfo[];
+      arena_r: number;
+      marbles: FlickMarble[];
+      status: string;
+      drafting: boolean;
+      current_turn: string | null;
+      deadline_ms: number | null;
+      server_now_ms: number;
+      winner: string | null;
+    }
+  | { type: "FlickDraft"; options: string[] }
+  | {
+      type: "FlickResolved";
+      ids: string[];
+      timeline: [number, number][][];
+      marbles: FlickMarble[];
+      current_turn: string | null;
+      deadline_ms: number | null;
+      server_now_ms: number;
+      status: string;
+      winner: string | null;
+    };
 
 // 클라이언트 → 서버
 export type ClientMsg =
@@ -107,6 +161,7 @@ export type ClientMsg =
       turn_limit_secs: number;
       password: string | null;
       mode: string;
+      game: string;
     }
   | { type: "JoinByCode"; code: string; nickname: string }
   | { type: "JoinBySearch"; code: string; nickname: string; password: string | null }
@@ -128,4 +183,6 @@ export type ClientMsg =
   | { type: "AssignTeam"; player_id: string; team: number | null }
   | { type: "Chat"; text: string }
   | { type: "LeaveRoom" }
-  | { type: "KickPlayer"; player_id: string };
+  | { type: "KickPlayer"; player_id: string }
+  | { type: "FlickDraftPick"; power: string }
+  | { type: "FlickAim"; angle: number; power: number };

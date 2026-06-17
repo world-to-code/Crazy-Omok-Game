@@ -1,4 +1,5 @@
 //! 오목 서버: axum 단일 바이너리가 정적 프론트(web/dist)와 WebSocket을 함께 서빙.
+mod flick;
 mod game;
 mod protocol;
 mod state;

@@ -16,9 +16,12 @@ pub enum ClientMsg {
         turn_limit_secs: u32,
         #[serde(default)]
         password: Option<String>,
-        /// "classic" | "team" (기본 classic)
+        /// "classic" | "team" (기본 classic) — 오목 전용
         #[serde(default)]
         mode: Option<String>,
+        /// "omok" | "flick" (기본 omok)
+        #[serde(default)]
+        game: Option<String>,
     },
     /// 방 코드로 입장 (비밀번호 불필요).
     JoinByCode { code: String, nickname: String },
@@ -77,6 +80,10 @@ pub enum ClientMsg {
     LeaveRoom,
     /// (방장) 특정 인원 강퇴.
     KickPlayer { player_id: Uuid },
+    /// (알까기) 드래프트 2개 중 하나 선택.
+    FlickDraftPick { power: String },
+    /// (알까기) 본인 차례에 발사 (angle 라디안, power 0~1).
+    FlickAim { angle: f64, power: f64 },
 }
 
 /// 서버 → 클라이언트
@@ -155,6 +162,34 @@ pub enum ServerMsg {
     },
     /// 방장에 의해 강퇴됨.
     Kicked,
+    /// (알까기) 드래프트 제시 — 해당 플레이어에게만 전송.
+    FlickDraft {
+        options: Vec<String>,
+    },
+    /// (알까기) 방 전체 상태 스냅샷.
+    FlickSnapshot {
+        settings: RoomSettings,
+        players: Vec<PlayerInfo>,
+        arena_r: f32,
+        marbles: Vec<FlickMarble>,
+        status: String,
+        drafting: bool,
+        current_turn: Option<Uuid>,
+        deadline_ms: Option<u64>,
+        server_now_ms: u64,
+        winner: Option<Uuid>,
+    },
+    /// (알까기) 발사 결과 — 위치 타임라인 + 갱신된 마블 상태 + 다음 차례.
+    FlickResolved {
+        ids: Vec<Uuid>,
+        timeline: Vec<Vec<[i16; 2]>>,
+        marbles: Vec<FlickMarble>,
+        current_turn: Option<Uuid>,
+        deadline_ms: Option<u64>,
+        server_now_ms: u64,
+        status: String,
+        winner: Option<Uuid>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -162,6 +197,22 @@ pub struct VoteCell {
     pub x: u16,
     pub y: u16,
     pub count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FlickMarble {
+    pub owner: Uuid,
+    pub x: f32,
+    pub y: f32,
+    pub r: f32,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub atk: i32,
+    pub def: i32,
+    pub alive: bool,
+    pub power: String,
+    pub shield: bool,
+    pub color_index: u8,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -175,6 +226,7 @@ pub struct RoomBrief {
     pub board_size: u16,
     pub win_length: u8,
     pub mode: String,
+    pub game: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -188,6 +240,7 @@ pub struct RoomSettings {
     pub turn_limit_secs: u32,
     pub host_id: Uuid,
     pub mode: String,
+    pub game: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
