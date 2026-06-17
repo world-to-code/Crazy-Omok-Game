@@ -29,6 +29,10 @@ const MAX_CHAT: usize = 50;
 const CHAT_COOLDOWN_MS: u64 = 500;
 /// 연결이 끊겨도 이 시간 동안은 자리를 유지 (새로고침/일시적 끊김 대비).
 const DISCONNECT_GRACE_SECS: u64 = 12;
+/// 동시 존재 가능한 방 수 상한 (메모리 보호).
+const MAX_ROOMS: usize = 500;
+/// WebSocket 메시지 크기 상한 (악성 대용량 메시지 차단). 우리 메시지는 수십 바이트~수 KB.
+const MAX_WS_MSG: usize = 16 * 1024;
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -37,6 +41,7 @@ pub async fn ws_handler(
     State(state): State<Arc<AppState>>,
 ) -> Response {
     let ip = client_ip(&headers, peer);
+    let ws = ws.max_message_size(MAX_WS_MSG).max_frame_size(MAX_WS_MSG);
     ws.on_upgrade(move |socket| handle_socket(socket, state, ip))
 }
 
@@ -125,7 +130,7 @@ fn handle_client_msg(
 ) {
     match msg {
         ClientMsg::ListRooms { query } => {
-            let rooms = state.rooms.lock().unwrap();
+            let rooms = state.rooms();
             let q = query.unwrap_or_default().to_lowercase();
             let list: Vec<RoomBrief> = rooms
                 .values()
@@ -162,7 +167,11 @@ fn handle_client_msg(
             let nickname = trim_len(nickname, MAX_NICKNAME, "익명");
             let password = password.filter(|p| !p.is_empty());
 
-            let mut rooms = state.rooms.lock().unwrap();
+            let mut rooms = state.rooms();
+            if rooms.len() >= MAX_ROOMS {
+                err(tx, "서버에 방이 너무 많습니다. 잠시 후 다시 시도하세요");
+                return;
+            }
             let mut code = gen_code();
             while rooms.contains_key(&code) {
                 code = gen_code();
@@ -226,7 +235,7 @@ fn handle_client_msg(
         }
 
         ClientMsg::Reconnect { code, player_id } => {
-            let mut rooms = state.rooms.lock().unwrap();
+            let mut rooms = state.rooms();
             let Some(room) = rooms.get_mut(&code) else {
                 err(tx, "방을 찾을 수 없습니다");
                 return;
@@ -260,7 +269,7 @@ fn handle_client_msg(
                 err(tx, "방에 참가하지 않았습니다");
                 return;
             };
-            let mut rooms = state.rooms.lock().unwrap();
+            let mut rooms = state.rooms();
             let Some(room) = rooms.get_mut(&code) else {
                 return;
             };
@@ -299,7 +308,7 @@ fn handle_client_msg(
                 err(tx, "방에 참가하지 않았습니다");
                 return;
             };
-            let mut rooms = state.rooms.lock().unwrap();
+            let mut rooms = state.rooms();
             let Some(room) = rooms.get_mut(&code) else {
                 return;
             };
@@ -382,7 +391,7 @@ fn handle_client_msg(
             let Some((code, pid)) = session.clone() else {
                 return;
             };
-            let mut rooms = state.rooms.lock().unwrap();
+            let mut rooms = state.rooms();
             let Some(room) = rooms.get_mut(&code) else {
                 return;
             };
@@ -405,7 +414,7 @@ fn handle_client_msg(
             let Some((code, pid)) = session.clone() else {
                 return;
             };
-            let mut rooms = state.rooms.lock().unwrap();
+            let mut rooms = state.rooms();
             let Some(room) = rooms.get_mut(&code) else {
                 return;
             };
@@ -432,7 +441,7 @@ fn handle_client_msg(
             let Some((code, pid)) = session.clone() else {
                 return;
             };
-            let mut rooms = state.rooms.lock().unwrap();
+            let mut rooms = state.rooms();
             let Some(room) = rooms.get_mut(&code) else {
                 return;
             };
@@ -477,7 +486,7 @@ fn handle_client_msg(
                 err(tx, "방에 참가하지 않았습니다");
                 return;
             };
-            let mut rooms = state.rooms.lock().unwrap();
+            let mut rooms = state.rooms();
             let Some(room) = rooms.get_mut(&code) else {
                 return;
             };
@@ -547,7 +556,7 @@ fn handle_client_msg(
             if text.is_empty() {
                 return;
             }
-            let mut rooms = state.rooms.lock().unwrap();
+            let mut rooms = state.rooms();
             let Some(room) = rooms.get_mut(&code) else {
                 return;
             };
@@ -579,7 +588,7 @@ fn handle_client_msg(
             let Some((code, pid)) = session.clone() else {
                 return;
             };
-            let mut rooms = state.rooms.lock().unwrap();
+            let mut rooms = state.rooms();
             let Some(room) = rooms.get_mut(&code) else {
                 return;
             };
@@ -623,7 +632,7 @@ fn join_room(
     conn_id: u64,
 ) {
     let nickname = trim_len(nickname, MAX_NICKNAME, "익명");
-    let mut rooms = state.rooms.lock().unwrap();
+    let mut rooms = state.rooms();
     let Some(room) = rooms.get_mut(code) else {
         err(tx, "방을 찾을 수 없습니다");
         return;
@@ -668,7 +677,7 @@ fn join_room(
 
 /// 나가기/연결 종료 공용 처리.
 fn handle_leave(state: &Arc<AppState>, code: &str, pid: Uuid, kind: LeaveKind) {
-    let mut rooms = state.rooms.lock().unwrap();
+    let mut rooms = state.rooms();
     let Some(room) = rooms.get_mut(code) else {
         return;
     };
@@ -707,7 +716,7 @@ fn handle_leave(state: &Arc<AppState>, code: &str, pid: Uuid, kind: LeaveKind) {
         let code_s = code.to_string();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(DISCONNECT_GRACE_SECS)).await;
-            let mut rooms = st.rooms.lock().unwrap();
+            let mut rooms = st.rooms();
             // 유예 동안 재접속했으면 정리하지 않는다.
             let still_gone = rooms
                 .get(&code_s)
@@ -735,18 +744,22 @@ fn cleanup_departed(
     let was_turn = room.current_turn() == Some(pid);
 
     // 진행 중이 아니면(로비/종료) 완전히 제거, 진행 중이면 자리 유지(끊김 표시).
-    if room.status != RoomStatus::Playing {
+    let removed = room.status != RoomStatus::Playing;
+    if removed {
         room.players.retain(|p| p.id != pid);
         room.order.retain(|&id| id != pid);
         room.votes.remove(&pid);
     }
 
-    // 방장 위임 (새 방장은 흰색으로)
+    // 방장 위임. 떠난 방장의 자리가 제거된 경우에만 새 방장을 흰색(0)으로.
+    // (진행 중에는 떠난 방장 자리가 흰색으로 남아 있어, 새 방장까지 흰색이면 색이 충돌하므로 기존 색 유지)
     if room.host_id == pid {
         if let Some(next) = room.players.iter().find(|p| p.connected()).map(|p| p.id) {
             room.host_id = next;
-            if let Some(p) = room.find_mut(next) {
-                p.color_index = 0;
+            if removed {
+                if let Some(p) = room.find_mut(next) {
+                    p.color_index = 0;
+                }
             }
         }
     }
@@ -870,7 +883,7 @@ fn begin_turn(room: &mut Room) -> Option<Uuid> {
 fn spawn_turn_timer(state: Arc<AppState>, code: String, generation: u64, limit_secs: u32) {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(limit_secs as u64)).await;
-        let mut rooms = state.rooms.lock().unwrap();
+        let mut rooms = state.rooms();
         let Some(room) = rooms.get_mut(&code) else {
             return;
         };

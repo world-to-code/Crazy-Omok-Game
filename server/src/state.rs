@@ -256,4 +256,9 @@ impl AppState {
             public_port,
         }
     }
+
+    /// 방 맵 잠금. 핸들러 패닉으로 락이 오염돼도 복구해서 서버가 멈추지 않게 한다.
+    pub fn rooms(&self) -> std::sync::MutexGuard<'_, HashMap<String, Room>> {
+        self.rooms.lock().unwrap_or_else(|e| e.into_inner())
+    }
 }
