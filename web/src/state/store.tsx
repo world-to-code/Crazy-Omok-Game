@@ -259,6 +259,8 @@ const GameContext = createContext<Ctx | null>(null);
 export function GameProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial);
   const wsRef = useRef<WebSocket | null>(null);
+  // 재접속(Reconnect) 시도 중인지. 실패하면 조용히 홈으로 보내기 위함.
+  const reconnectPending = useRef(false);
 
   const send = (m: ClientMsg) => {
     const ws = wsRef.current;
@@ -266,7 +268,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // 초대 링크(?join=CODE)로 들어온 경우: 코드 입장 화면으로, 기존 세션 재접속은 건너뜀.
+    let stopped = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // 초대 링크(?join=CODE)가 있을 때만 링크 입장 화면으로. (그 외에는 일반 접속)
     const linkCode = new URLSearchParams(location.search).get("join");
     if (linkCode) {
       clearSession();
@@ -275,29 +280,62 @@ export function GameProvider({ children }: { children: ReactNode }) {
       history.replaceState(null, "", location.pathname);
     }
 
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
-    wsRef.current = ws;
+    const connect = () => {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${proto}://${location.host}/ws`);
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      dispatch({ kind: "connected", value: true });
-      if (linkCode) return; // 링크 입장은 닉네임 입력 후 수동 참가
-      const sess = loadSession();
-      if (sess) {
-        ws.send(JSON.stringify({ type: "Reconnect", code: sess.code, player_id: sess.playerId }));
-      }
-    };
-    ws.onclose = () => dispatch({ kind: "connected", value: false });
-    ws.onmessage = (ev) => {
-      try {
-        const msg: ServerMsg = JSON.parse(ev.data);
+      ws.onopen = () => {
+        dispatch({ kind: "connected", value: true });
+        // 저장된 세션이 있으면 재접속 시도 (링크 입장 시에는 위에서 세션을 비웠으므로 보내지 않음).
+        const sess = loadSession();
+        if (sess) {
+          reconnectPending.current = true;
+          ws.send(JSON.stringify({ type: "Reconnect", code: sess.code, player_id: sess.playerId }));
+        }
+      };
+
+      ws.onmessage = (ev) => {
+        let msg: ServerMsg;
+        try {
+          msg = JSON.parse(ev.data);
+        } catch {
+          return;
+        }
+        // 재접속 시도의 응답 처리:
+        //  - 성공(Joined): 정상 진행
+        //  - 실패(Error, 예: 방이 사라짐): 세션 정리 후 조용히 홈으로 (에러 모달 표시 안 함)
+        if (reconnectPending.current) {
+          if (msg.type === "Joined") {
+            reconnectPending.current = false;
+          } else if (msg.type === "Error") {
+            reconnectPending.current = false;
+            clearSession();
+            dispatch({ kind: "reset" });
+            return;
+          }
+        }
         dispatch({ kind: "msg", msg });
-      } catch {
-        // ignore malformed
-      }
+      };
+
+      ws.onclose = () => {
+        dispatch({ kind: "connected", value: false });
+        reconnectPending.current = false;
+        // 서버 재시작/네트워크 끊김 시 자동 재연결 (배포 후 새로고침 없이 복구).
+        if (!stopped) {
+          retryTimer = setTimeout(connect, 1500);
+        }
+      };
     };
 
-    return () => ws.close();
+    connect();
+
+    return () => {
+      stopped = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      reconnectPending.current = false;
+      wsRef.current?.close();
+    };
   }, []);
 
   const leave = () => {

@@ -1,0 +1,19 @@
+[Unit]
+Description=Omok game server
+After=network.target
+
+[Service]
+Type=simple
+# 배포에 쓰는 SSH 사용자로 실행 (Ubuntu: ubuntu, Amazon Linux: ec2-user 로 변경).
+User=ubuntu
+WorkingDirectory=/opt/omok
+EnvironmentFile=/opt/omok/.env
+ExecStart=/opt/omok/omok-server
+Restart=always
+RestartSec=2
+# 80 번 포트를 root 가 아니어도 바인딩할 수 있게 허용 (setcap 불필요).
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

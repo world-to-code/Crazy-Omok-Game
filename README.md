@@ -89,30 +89,25 @@ omok/
 | `OMOK_PUBLIC_PORT` | `OMOK_PORT` 값 | 초대 링크 포트 (80/443 이면 링크에서 생략) |
 | `OMOK_WEB_DIR` | `../web/dist` | 빌드된 프론트 경로 |
 
-## 배포 (예: 공인 IP `43.202.33.212`, 80 포트)
+## 배포 (CI/CD 자동화)
 
+`main` 브랜치에 **push 하면 GitHub Actions 가 자동으로** 빌드(프론트 + Rust 정적 바이너리) →
+EC2 전송 → systemd 서비스(`omok`) 재시작까지 처리합니다.
+
+- 워크플로: `.github/workflows/deploy.yml`
+- systemd 유닛: `deploy/omok.service`
+- **최초 1회 서버 설정 + 필요한 GitHub Secrets 는 [`deploy/SETUP.md`](deploy/SETUP.md) 참고**
+
+배포 후 접속: `http://omok.ascode.click/` (포트 80). 로비 초대 링크는
+`http://omok.ascode.click/?join=<코드>` 로 생성됩니다 (코드·비밀번호 없이 바로 참가).
+
+> 빌드는 **musl 정적 링크**라 glibc 버전과 무관하게 어떤 리눅스에서도 실행됩니다.
+> 80 포트는 systemd `AmbientCapabilities=CAP_NET_BIND_SERVICE` 로 일반 사용자가 바인딩합니다.
+
+### 수동 배포가 필요할 때
 ```bash
-# 1) 프론트 빌드
 cd web && npm install && npm run build
-
-# 2) 서버 릴리스 빌드
 cd ../server && cargo build --release
-
-# 3) .env 설정 (저장소 루트 또는 server 실행 디렉터리)
-cp ../.env.example .env
-#   OMOK_PORT=80
-#   OMOK_PUBLIC_HOST=43.202.33.212
-#   OMOK_PUBLIC_PORT=80
-
-# 4) 80 포트는 root 권한 필요 → setcap 으로 일반 사용자 실행 허용
-sudo setcap 'cap_net_bind_service=+ep' ./target/release/omok-server
-
-# 5) 실행
+cp ../.env.example .env   # OMOK_PORT=80, OMOK_PUBLIC_HOST=..., OMOK_PUBLIC_PORT=80
 ./target/release/omok-server
 ```
-
-이제 누구나 `http://43.202.33.212/` 로 접속하고, 로비의 초대 링크는
-`http://43.202.33.212/?join=<코드>` 형태로 생성됩니다 (코드·비밀번호 없이 바로 참가).
-
-> 클라우드(예: AWS) 사용 시 **보안 그룹/방화벽에서 80(또는 사용 포트) 인바운드**를 열어야 합니다.
-> systemd 서비스로 등록하면 `Environment=` 또는 `EnvironmentFile=` 로 같은 변수를 주입할 수 있습니다.
