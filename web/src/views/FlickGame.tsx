@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useGame } from "../state/store";
-import { POWER_INFO, playerColor } from "../types";
+import { POWER_INFO, OBSTACLE_INFO, playerColor } from "../types";
 import type { FlickMarble } from "../types";
 import Countdown from "../components/Countdown";
 import Chat from "../components/Chat";
@@ -143,6 +143,8 @@ function Arena() {
   marblesRef.current = state.marbles;
   const arenaRRef = useRef(state.arenaR);
   arenaRRef.current = state.arenaR;
+  const obstaclesRef = useRef(state.obstacles);
+  obstaclesRef.current = state.obstacles;
   const myId = state.myId;
   const myTurn = state.status === "playing" && !state.drafting && state.currentTurn === myId;
   const myTurnRef = useRef(myTurn);
@@ -295,6 +297,46 @@ function Arena() {
       ctx.strokeStyle = "#ffd60a";
       ctx.stroke();
 
+      // 장애물/필드
+      for (const ob of obstaclesRef.current) {
+        const info = OBSTACLE_INFO[ob.kind];
+        if (!info) continue;
+        const [ox, oy] = toS(ob.x, ob.y);
+        ctx.fillStyle = info.fill;
+        ctx.strokeStyle = info.stroke;
+        ctx.lineWidth = info.solid ? 2.5 : 1.5;
+        if (ob.shape === "circle") {
+          ctx.beginPath();
+          ctx.arc(ox, oy, ob.r * zoom, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          const w = ob.w * zoom;
+          const h = ob.h * zoom;
+          ctx.fillRect(ox - w / 2, oy - h / 2, w, h);
+          ctx.strokeRect(ox - w / 2, oy - h / 2, w, h);
+        }
+        // 돌풍 방향 화살표
+        if (ob.kind === "wind") {
+          const a = ob.dir;
+          ctx.beginPath();
+          ctx.moveTo(ox - Math.cos(a) * 20, oy - Math.sin(a) * 20);
+          ctx.lineTo(ox + Math.cos(a) * 20, oy + Math.sin(a) * 20);
+          ctx.strokeStyle = info.stroke;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+        // 라벨(충분히 클 때)
+        const labelSize = ob.shape === "circle" ? ob.r * zoom : Math.min(ob.w, ob.h) * zoom;
+        if (labelSize > 26) {
+          ctx.fillStyle = "rgba(255,255,255,0.85)";
+          ctx.font = `${Math.min(16, labelSize * 0.35)}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(info.emoji, ox, oy);
+        }
+      }
+
       // 마블
       for (const m of marbles) {
         if (!m.alive && !anim) continue;
@@ -381,10 +423,13 @@ function Arena() {
     const angle = Math.atan2(dy, dx);
     const power = Math.min(1, Math.hypot(dx, dy) / (arenaRRef.current * 0.9));
     aimRef.current = { angle, power };
-    // 궤적 예측 (WASM)
+    // 궤적 예측 (WASM) — 다른 알 + 솔리드 장애물(원형)을 장애물로 전달
     const others: number[] = [];
     for (const m of marblesRef.current) {
       if (m.owner !== myId && m.alive) others.push(m.x, m.y, m.r);
+    }
+    for (const ob of obstaclesRef.current) {
+      if (OBSTACLE_INFO[ob.kind]?.solid && ob.shape === "circle") others.push(ob.x, ob.y, ob.r);
     }
     const mult = me.power === "slingshot" ? 1.4 : 1.0;
     trajRef.current = predictPath(me.x, me.y, angle, power, mult, arenaRRef.current, me.r, new Float32Array(others));

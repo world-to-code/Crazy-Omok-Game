@@ -10,6 +10,7 @@ import type {
   ChatLine,
   ClientMsg,
   FlickMarble,
+  FlickObstacle,
   PlayerInfo,
   RoomBrief,
   RoomSettings,
@@ -49,6 +50,7 @@ export interface GameState {
   // 알까기
   arenaR: number;
   marbles: FlickMarble[];
+  obstacles: FlickObstacle[];
   drafting: boolean;
   draftOptions: string[] | null;
   flickResolve: { ids: string[]; timeline: [number, number][][]; seq: number } | null;
@@ -84,6 +86,7 @@ const initial: GameState = {
   selectedGame: "omok",
   arenaR: 320,
   marbles: [],
+  obstacles: [],
   drafting: false,
   draftOptions: null,
   flickResolve: null,
@@ -273,6 +276,7 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         players: m.players,
         arenaR: m.arena_r,
         marbles: m.marbles,
+        obstacles: m.obstacles,
         status: m.status,
         drafting: m.drafting,
         draftOptions: m.drafting ? s.draftOptions : null,

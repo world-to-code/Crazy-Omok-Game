@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use rand::seq::SliceRandom;
+use rand::Rng;
 use uuid::Uuid;
 
 use crate::protocol::FlickMarble;
@@ -19,6 +20,11 @@ const STOP_SPEED: f64 = 8.0;
 const DMG_K: f64 = 0.0022; // 충돌속도→데미지 계수 (속도가 빨라져 한 방 KO 방지로 하향)
 const WALL_RESTITUTION: f64 = 0.9;
 const EXPLOSION_R: f64 = 120.0;
+// 장애물 효과 세기
+const GRAV_ACCEL: f64 = 1500.0;
+const WIND_ACCEL: f64 = 1100.0;
+const BOOST_MULT: f64 = 1.03;
+const SWAMP_MULT: f64 = 0.90;
 
 /// 공격 계열 / 유틸 계열에서 하나씩 뽑아 2개 제시(서로 다른 성격).
 const OFFENSE: [&str; 5] = ["explosion", "heavy", "pierce", "spikes", "lifesteal"];
@@ -35,6 +41,141 @@ pub fn offer_powers() -> Vec<String> {
 
 pub fn is_valid_power(p: &str) -> bool {
     OFFENSE.contains(&p) || UTILITY.contains(&p)
+}
+
+// ===== 장애물/디버프 10종 =====
+// 솔리드(부딪히면 튕김): rock·spike·bumper·bomb (원형)
+// 필드(통과하며 효과): swamp·ice·lava·boost·gravity·wind (사각/원형)
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ObKind {
+    Rock,     // 단단한 바위 — 튕김
+    Spike,    // 가시 — 튕김 + 피해
+    Bumper,   // 범퍼 — 강하게 튕겨냄
+    Bomb,     // 폭탄 — 부딪히면 폭발(광역 넉백+피해)
+    Swamp,    // 늪 — 크게 감속
+    Ice,      // 빙판 — 마찰↓(미끄러짐)
+    Lava,     // 용암 — 머무는 동안 피해
+    Boost,    // 부스터 — 가속
+    Gravity,  // 중력장 — 중심으로 끌어당김
+    Wind,     // 돌풍 — 한 방향으로 밀어냄
+}
+
+impl ObKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ObKind::Rock => "rock",
+            ObKind::Spike => "spike",
+            ObKind::Bumper => "bumper",
+            ObKind::Bomb => "bomb",
+            ObKind::Swamp => "swamp",
+            ObKind::Ice => "ice",
+            ObKind::Lava => "lava",
+            ObKind::Boost => "boost",
+            ObKind::Gravity => "gravity",
+            ObKind::Wind => "wind",
+        }
+    }
+    fn is_solid(self) -> bool {
+        matches!(self, ObKind::Rock | ObKind::Spike | ObKind::Bumper | ObKind::Bomb)
+    }
+    fn is_circle(self) -> bool {
+        // 솔리드와 중력장은 원형, 나머지 필드는 사각형.
+        self.is_solid() || self == ObKind::Gravity
+    }
+}
+
+const ALL_OBKINDS: [ObKind; 10] = [
+    ObKind::Rock,
+    ObKind::Spike,
+    ObKind::Bumper,
+    ObKind::Bomb,
+    ObKind::Swamp,
+    ObKind::Ice,
+    ObKind::Lava,
+    ObKind::Boost,
+    ObKind::Gravity,
+    ObKind::Wind,
+];
+
+#[derive(Clone, Copy)]
+pub struct Obstacle {
+    pub kind: ObKind,
+    pub x: f64,
+    pub y: f64,
+    pub r: f64,   // 원형 반지름
+    pub w: f64,   // 사각 가로(절반 아님, 전체)
+    pub h: f64,   // 사각 세로
+    pub dir: f64, // 돌풍 방향(라디안)
+}
+
+impl Obstacle {
+    fn contains(&self, x: f64, y: f64) -> bool {
+        if self.kind.is_circle() {
+            let dx = x - self.x;
+            let dy = y - self.y;
+            dx * dx + dy * dy <= self.r * self.r
+        } else {
+            (x - self.x).abs() <= self.w / 2.0 && (y - self.y).abs() <= self.h / 2.0
+        }
+    }
+    pub fn info(&self) -> crate::protocol::FlickObstacle {
+        crate::protocol::FlickObstacle {
+            kind: self.kind.as_str().to_string(),
+            shape: if self.kind.is_circle() { "circle" } else { "rect" }.to_string(),
+            x: self.x as f32,
+            y: self.y as f32,
+            r: self.r as f32,
+            w: self.w as f32,
+            h: self.h as f32,
+            dir: self.dir as f32,
+        }
+    }
+}
+
+fn rand_range(rng: &mut impl Rng, lo: f64, hi: f64) -> f64 {
+    lo + rng.gen::<f64>() * (hi - lo)
+}
+
+/// 아레나에 장애물 배치. 10종이 최소 1개씩 + 추가 랜덤.
+fn generate_obstacles(arena_r: f64) -> Vec<Obstacle> {
+    let mut rng = rand::thread_rng();
+    let mut kinds: Vec<ObKind> = ALL_OBKINDS.to_vec();
+    // 추가 6개 랜덤
+    for _ in 0..6 {
+        kinds.push(*ALL_OBKINDS.choose(&mut rng).unwrap());
+    }
+    kinds.shuffle(&mut rng);
+
+    let mut obs = Vec::new();
+    for kind in kinds {
+        // 중심에서 너무 가깝지 않게, 벽 안쪽으로.
+        let ang = rand_range(&mut rng, 0.0, std::f64::consts::TAU);
+        let dist = rand_range(&mut rng, arena_r * 0.18, arena_r * 0.78);
+        let x = dist * ang.cos();
+        let y = dist * ang.sin();
+        let (r, w, h) = match kind {
+            ObKind::Rock => (rand_range(&mut rng, 55.0, 95.0), 0.0, 0.0),
+            ObKind::Spike => (rand_range(&mut rng, 38.0, 60.0), 0.0, 0.0),
+            ObKind::Bumper => (rand_range(&mut rng, 45.0, 70.0), 0.0, 0.0),
+            ObKind::Bomb => (rand_range(&mut rng, 32.0, 46.0), 0.0, 0.0),
+            ObKind::Gravity => (rand_range(&mut rng, 170.0, 250.0), 0.0, 0.0),
+            _ => {
+                let w = rand_range(&mut rng, 180.0, 360.0);
+                let h = rand_range(&mut rng, 160.0, 320.0);
+                (0.0, w, h)
+            }
+        };
+        obs.push(Obstacle {
+            kind,
+            x,
+            y,
+            r,
+            w,
+            h,
+            dir: rand_range(&mut rng, 0.0, std::f64::consts::TAU),
+        });
+    }
+    obs
 }
 
 pub struct Marble {
@@ -82,6 +223,7 @@ pub struct DraftOffer {
 pub struct FlickGame {
     pub arena_r: f64,
     pub marbles: Vec<Marble>,
+    pub obstacles: Vec<Obstacle>,
     pub drafting: bool,
     pub draft: HashMap<Uuid, DraftOffer>,
 }
@@ -123,9 +265,14 @@ impl FlickGame {
         FlickGame {
             arena_r: ARENA_R,
             marbles,
+            obstacles: generate_obstacles(ARENA_R),
             drafting: true,
             draft,
         }
+    }
+
+    pub fn obstacle_infos(&self) -> Vec<crate::protocol::FlickObstacle> {
+        self.obstacles.iter().map(|o| o.info()).collect()
     }
 
     pub fn marble(&self, owner: Uuid) -> Option<&Marble> {
@@ -215,29 +362,107 @@ impl FlickGame {
         }
 
         let mut explosion_fired = false;
+        let obs = self.obstacles.clone();
+        let decay = 1.0 - FRICTION * DT;
         timeline.push(self.frame());
 
         for step in 0..MAX_STEPS {
-            // 적분 + 마찰
-            for m in self.marbles.iter_mut() {
-                if !m.alive {
+            let n = self.marbles.len();
+            // 적분 + 마찰 + 필드 효과
+            for i in 0..n {
+                if !self.marbles[i].alive {
                     continue;
                 }
-                m.x += m.vx * DT;
-                m.y += m.vy * DT;
-                let decay = 1.0 - FRICTION * DT;
-                m.vx *= decay;
-                m.vy *= decay;
+                self.marbles[i].x += self.marbles[i].vx * DT;
+                self.marbles[i].y += self.marbles[i].vy * DT;
+                self.marbles[i].vx *= decay;
+                self.marbles[i].vy *= decay;
+
+                let (mx, my) = (self.marbles[i].x, self.marbles[i].y);
+                let mut in_lava = false;
+                for ob in &obs {
+                    if ob.kind.is_solid() || !ob.contains(mx, my) {
+                        continue;
+                    }
+                    match ob.kind {
+                        ObKind::Swamp => {
+                            self.marbles[i].vx *= SWAMP_MULT;
+                            self.marbles[i].vy *= SWAMP_MULT;
+                        }
+                        ObKind::Ice => {
+                            // 마찰 상쇄(미끄러짐)
+                            self.marbles[i].vx /= decay;
+                            self.marbles[i].vy /= decay;
+                        }
+                        ObKind::Boost => {
+                            self.marbles[i].vx *= BOOST_MULT;
+                            self.marbles[i].vy *= BOOST_MULT;
+                        }
+                        ObKind::Gravity => {
+                            let dx = ob.x - mx;
+                            let dy = ob.y - my;
+                            let d = (dx * dx + dy * dy).sqrt().max(1.0);
+                            self.marbles[i].vx += dx / d * GRAV_ACCEL * DT;
+                            self.marbles[i].vy += dy / d * GRAV_ACCEL * DT;
+                        }
+                        ObKind::Wind => {
+                            self.marbles[i].vx += ob.dir.cos() * WIND_ACCEL * DT;
+                            self.marbles[i].vy += ob.dir.sin() * WIND_ACCEL * DT;
+                        }
+                        ObKind::Lava => in_lava = true,
+                        _ => {}
+                    }
+                }
+                if in_lava && step % 8 == 0 {
+                    self.apply_hp(i, -2);
+                }
             }
 
-            // 충돌 (쌍별)
-            let n = self.marbles.len();
+            // 마블-마블 충돌
             for i in 0..n {
                 for j in (i + 1)..n {
                     if !self.marbles[i].alive || !self.marbles[j].alive {
                         continue;
                     }
                     self.collide(i, j, shooter, &mut explosion_fired);
+                }
+            }
+
+            // 솔리드 장애물 충돌(튕김 + 가시/폭탄)
+            for i in 0..n {
+                if !self.marbles[i].alive {
+                    continue;
+                }
+                for ob in &obs {
+                    if !ob.kind.is_solid() {
+                        continue;
+                    }
+                    let dx = self.marbles[i].x - ob.x;
+                    let dy = self.marbles[i].y - ob.y;
+                    let d = (dx * dx + dy * dy).sqrt();
+                    let min = self.marbles[i].r + ob.r;
+                    if d >= min || d <= 0.0001 {
+                        continue;
+                    }
+                    let nx = dx / d;
+                    let ny = dy / d;
+                    self.marbles[i].x = ob.x + nx * min;
+                    self.marbles[i].y = ob.y + ny * min;
+                    let vn = self.marbles[i].vx * nx + self.marbles[i].vy * ny;
+                    if vn < 0.0 {
+                        let rest = if ob.kind == ObKind::Bumper { 1.5 } else { 0.9 };
+                        self.marbles[i].vx -= (1.0 + rest) * vn * nx;
+                        self.marbles[i].vy -= (1.0 + rest) * vn * ny;
+                        let impact = vn.abs();
+                        match ob.kind {
+                            ObKind::Spike => {
+                                let dmg = ((impact * 0.004) as i32 + 5).max(5);
+                                self.apply_hp(i, -dmg);
+                            }
+                            ObKind::Bomb => self.explode_at(ob.x, ob.y, 240.0, 1100.0, 14),
+                            _ => {}
+                        }
+                    }
                 }
             }
 
@@ -397,6 +622,25 @@ impl FlickGame {
             self.marbles[k].vx += dx / d * f;
             self.marbles[k].vy += dy / d * f;
             self.apply_hp(k, -8);
+        }
+    }
+
+    /// 임의 지점 폭발 (폭탄 장애물용). 환경 피해라 모든 알에 적용.
+    fn explode_at(&mut self, cx: f64, cy: f64, radius: f64, force: f64, dmg: i32) {
+        for k in 0..self.marbles.len() {
+            if !self.marbles[k].alive {
+                continue;
+            }
+            let dx = self.marbles[k].x - cx;
+            let dy = self.marbles[k].y - cy;
+            let d = (dx * dx + dy * dy).sqrt().max(0.001);
+            if d > radius {
+                continue;
+            }
+            let f = (1.0 - d / radius) * force;
+            self.marbles[k].vx += dx / d * f;
+            self.marbles[k].vy += dy / d * f;
+            self.apply_hp(k, -dmg);
         }
     }
 

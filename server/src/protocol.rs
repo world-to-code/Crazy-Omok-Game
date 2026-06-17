@@ -174,6 +174,7 @@ pub enum ServerMsg {
         players: Vec<PlayerInfo>,
         arena_r: f32,
         marbles: Vec<FlickMarble>,
+        obstacles: Vec<FlickObstacle>,
         status: String,
         drafting: bool,
         current_turn: Option<Uuid>,
@@ -205,6 +206,18 @@ pub struct VoteCell {
     pub x: u16,
     pub y: u16,
     pub count: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FlickObstacle {
+    pub kind: String,
+    pub shape: String, // "circle" | "rect"
+    pub x: f32,
+    pub y: f32,
+    pub r: f32,
+    pub w: f32,
+    pub h: f32,
+    pub dir: f32,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -54,6 +54,31 @@ export interface VoteCell {
   count: number;
 }
 
+export interface FlickObstacle {
+  kind: string;
+  shape: string; // "circle" | "rect"
+  x: number;
+  y: number;
+  r: number;
+  w: number;
+  h: number;
+  dir: number;
+}
+
+// 장애물 표시 정보
+export const OBSTACLE_INFO: Record<string, { name: string; fill: string; stroke: string; solid: boolean; emoji: string }> = {
+  rock: { name: "바위", fill: "#6b7280", stroke: "#374151", solid: true, emoji: "🪨" },
+  spike: { name: "가시", fill: "#7f1d1d", stroke: "#ef4444", solid: true, emoji: "🌵" },
+  bumper: { name: "범퍼", fill: "#f59e0b", stroke: "#b45309", solid: true, emoji: "🟠" },
+  bomb: { name: "폭탄", fill: "#1f2937", stroke: "#ef4444", solid: true, emoji: "💣" },
+  swamp: { name: "늪(감속)", fill: "rgba(74,124,89,0.35)", stroke: "#4a7c59", solid: false, emoji: "🟢" },
+  ice: { name: "빙판(미끄럼)", fill: "rgba(125,211,252,0.28)", stroke: "#7dd3fc", solid: false, emoji: "🧊" },
+  lava: { name: "용암(피해)", fill: "rgba(239,68,68,0.35)", stroke: "#ef4444", solid: false, emoji: "🔥" },
+  boost: { name: "부스터(가속)", fill: "rgba(34,211,238,0.28)", stroke: "#22d3ee", solid: false, emoji: "⚡" },
+  gravity: { name: "중력장", fill: "rgba(139,92,246,0.25)", stroke: "#a78bfa", solid: false, emoji: "🌀" },
+  wind: { name: "돌풍", fill: "rgba(148,163,184,0.22)", stroke: "#94a3b8", solid: false, emoji: "💨" },
+};
+
 export interface FlickMarble {
   owner: string;
   x: number;
@@ -129,6 +154,7 @@ export type ServerMsg =
       players: PlayerInfo[];
       arena_r: number;
       marbles: FlickMarble[];
+      obstacles: FlickObstacle[];
       status: string;
       drafting: boolean;
       current_turn: string | null;

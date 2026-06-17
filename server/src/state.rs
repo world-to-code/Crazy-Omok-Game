@@ -243,15 +243,16 @@ impl Room {
     pub fn snapshot(&self) -> ServerMsg {
         // 알까기는 별도 스냅샷 (로비에서 flick==None 이어도 FlickSnapshot으로).
         if self.game == GameKind::Flick {
-            let (arena_r, marbles, drafting) = match &self.flick {
-                Some(f) => (f.arena_r as f32, f.infos(), f.drafting),
-                None => (crate::flick::ARENA_R as f32, Vec::new(), false),
+            let (arena_r, marbles, obstacles, drafting) = match &self.flick {
+                Some(f) => (f.arena_r as f32, f.infos(), f.obstacle_infos(), f.drafting),
+                None => (crate::flick::ARENA_R as f32, Vec::new(), Vec::new(), false),
             };
             return ServerMsg::FlickSnapshot {
                 settings: self.settings(),
                 players: self.player_infos(),
                 arena_r,
                 marbles,
+                obstacles,
                 status: self.status.as_str().to_string(),
                 drafting,
                 current_turn: self.current_turn_any(),
