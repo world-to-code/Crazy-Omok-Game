@@ -206,6 +206,15 @@ input[type="range"] {
   gap: 16px;
   align-items: start;
 }
+
+/* 게임 화면: 화면 너비의 80% 사용, 오목판 70% : 사이드(참가자+채팅) 10% */
+.game {
+  width: 80vw;
+  margin-left: calc(50% - 40vw); /* 부모 폭과 무관하게 뷰포트 중앙 정렬 */
+}
+.game-body {
+  grid-template-columns: 7fr 1fr; /* 70 : 10 */
+}
 .code-box {
   display: flex;
   align-items: center;
@@ -688,11 +697,13 @@ input[type="range"] {
 }
 .board-scroll {
   max-width: 100%;
-  max-height: 74vh;
+  max-height: 84vh;
   overflow: auto;
   background: #0c0f24;
   border-radius: 12px;
   padding: 10px;
+  display: flex;
+  justify-content: safe center;
 }
 .game-side {
   display: grid;
@@ -785,5 +796,9 @@ input[type="range"] {
   .lobby,
   .game-body {
     grid-template-columns: 1fr;
+  }
+  .game {
+    width: 100%;
+    margin-left: 0;
   }
 }

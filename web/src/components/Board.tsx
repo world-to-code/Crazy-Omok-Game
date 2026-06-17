@@ -7,6 +7,7 @@ export default function Board() {
   const { settings, board, winningLine, lastMove, currentTurn, currentTeam, myId, status, mode, votes, voteVoters, players } =
     state;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const n = settings?.board_size ?? 15;
   const isTeam = mode === "team";
   const palette = isTeam ? TEAM_COLORS : COLORS;
@@ -16,16 +17,22 @@ export default function Board() {
     status === "playing" &&
     (isTeam ? currentTeam != null && currentTeam === myTeam : currentTurn === myId);
 
-  // 내가 찍은 위치(팀전). 차례가 바뀌면 초기화.
-  const [myVote, setMyVote] = useState<{ x: number; y: number } | null>(null);
+  // 보드 영역(스크롤 컨테이너)의 가용 너비를 측정해 칸 크기를 거기에 맞춘다.
+  const [avail, setAvail] = useState(700);
   useEffect(() => {
-    setMyVote(null);
-  }, [currentTeam, state.deadlineMs]);
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => setAvail(Math.max(200, el.clientWidth - 24));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
-  const [cell, setCell] = useState(() => clamp(Math.floor(620 / n), 10, 36));
-  useEffect(() => {
-    setCell(clamp(Math.floor(620 / n), 10, 36));
-  }, [n]);
+  // 확대/축소 배율 (기본 1 = 가용 너비에 꽉 채움)
+  const [zoom, setZoom] = useState(1);
+  const fitCell = avail / (n + 1);
+  const cell = clamp(Math.round(fitCell * zoom), 6, 140);
 
   const margin = Math.max(cell * 0.7, 10);
   const px = (i: number) => margin + i * cell;
@@ -59,7 +66,6 @@ export default function Board() {
 
     const r = Math.max(cell * 0.42, 3);
 
-    // 돌
     for (const [k, color] of board) {
       const [x, y] = k.split(",").map(Number);
       const cx = px(x);
@@ -68,7 +74,6 @@ export default function Board() {
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fillStyle = palette[color] ?? "#000";
       ctx.fill();
-      // 흰색(방장) 돌은 테두리를 진하게 해 잘 보이도록.
       const light = !isTeam && color === 0;
       ctx.lineWidth = light ? 1.5 : 1;
       ctx.strokeStyle = light ? "rgba(0,0,0,0.7)" : "rgba(0,0,0,0.35)";
@@ -89,7 +94,6 @@ export default function Board() {
       }
     }
 
-    // 투표 히트맵 (팀전, 내 팀 차례에만 votes가 채워짐)
     if (isTeam && votes.size > 0) {
       const base = myTeam != null ? palette[myTeam] : "#457b9d";
       const denom = Math.max(voteVoters, 1);
@@ -97,22 +101,13 @@ export default function Board() {
         const [x, y] = k.split(",").map(Number);
         const cx = px(x);
         const cy = px(y);
-        const ratio = count / denom; // 선택률
+        const ratio = count / denom;
         ctx.globalAlpha = 0.25 + 0.6 * Math.min(1, ratio);
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.fillStyle = base;
         ctx.fill();
         ctx.globalAlpha = 1;
-        // 내 선택 강조
-        if (myVote && myVote.x === x && myVote.y === y) {
-          ctx.beginPath();
-          ctx.arc(cx, cy, r + 2, 0, Math.PI * 2);
-          ctx.lineWidth = 2.5;
-          ctx.strokeStyle = "#ffd60a";
-          ctx.stroke();
-        }
-        // 선택률 % (칸이 충분히 클 때)
         if (cell >= 16) {
           ctx.fillStyle = "#fff";
           ctx.font = `bold ${Math.max(9, cell * 0.3)}px sans-serif`;
@@ -122,7 +117,7 @@ export default function Board() {
         }
       }
     }
-  }, [board, winningLine, lastMove, cell, n, dim, votes, myVote, voteVoters, isTeam, myTeam, palette]);
+  }, [board, winningLine, lastMove, cell, n, dim, votes, voteVoters, isTeam, myTeam, palette]);
 
   function onClick(e: React.MouseEvent<HTMLCanvasElement>) {
     if (!myTurn) return;
@@ -133,7 +128,6 @@ export default function Board() {
     if (board.has(`${x},${y}`)) return;
     if (isTeam) {
       send({ type: "Vote", x, y });
-      setMyVote({ x, y });
     } else {
       send({ type: "PlaceStone", x, y });
     }
@@ -143,15 +137,16 @@ export default function Board() {
     <div className="board-wrap">
       <div className="board-controls">
         <span>{n}×{n} 보드</span>
-        <button onClick={() => setCell((c) => clamp(c - 4, 6, 60))}>축소 −</button>
-        <button onClick={() => setCell((c) => clamp(c + 4, 6, 60))}>확대 +</button>
+        <button onClick={() => setZoom((z) => clamp(z * 0.8, 0.3, 4))}>축소 −</button>
+        <button onClick={() => setZoom((z) => clamp(z * 1.25, 0.3, 4))}>확대 +</button>
+        <button onClick={() => setZoom(1)}>맞춤</button>
         {myTurn && (
           <span className="your-turn-badge">
             {isTeam ? "우리 팀 차례! 원하는 자리를 클릭(투표)하세요" : "내 차례! 빈 칸을 클릭하세요"}
           </span>
         )}
       </div>
-      <div className="board-scroll">
+      <div className="board-scroll" ref={scrollRef}>
         <canvas ref={canvasRef} onClick={onClick} style={{ cursor: myTurn ? "pointer" : "default" }} />
       </div>
     </div>
