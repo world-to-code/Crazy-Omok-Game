@@ -27,6 +27,8 @@ const MAX_ROOM_NAME: usize = 20;
 const MAX_CHAT: usize = 50;
 /// 채팅 속도 제한 (ms).
 const CHAT_COOLDOWN_MS: u64 = 500;
+/// 연결이 끊겨도 이 시간 동안은 자리를 유지 (새로고침/일시적 끊김 대비).
+const DISCONNECT_GRACE_SECS: u64 = 12;
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
@@ -634,6 +636,7 @@ fn handle_leave(state: &Arc<AppState>, code: &str, pid: Uuid, kind: LeaveKind) {
     let Some(room) = rooms.get_mut(code) else {
         return;
     };
+    let explicit = matches!(kind, LeaveKind::Full);
 
     // 연결 정리
     match kind {
@@ -657,6 +660,42 @@ fn handle_leave(state: &Arc<AppState>, code: &str, pid: Uuid, kind: LeaveKind) {
     }
 
     // 여기부터는 이 플레이어가 더 이상 연결이 없는 경우.
+    if explicit {
+        // 명시적 나가기 → 즉시 정리.
+        cleanup_departed(&mut rooms, state, code, pid);
+    } else {
+        // 새로고침/탭닫힘 → 자리 유지하고 끊김만 알림. 유예 후에도 안 돌아오면 정리.
+        let snap = room.snapshot();
+        room.broadcast(&snap);
+        let st = state.clone();
+        let code_s = code.to_string();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(DISCONNECT_GRACE_SECS)).await;
+            let mut rooms = st.rooms.lock().unwrap();
+            // 유예 동안 재접속했으면 정리하지 않는다.
+            let still_gone = rooms
+                .get(&code_s)
+                .and_then(|r| r.find(pid))
+                .map(|p| !p.connected())
+                .unwrap_or(false);
+            if still_gone {
+                cleanup_departed(&mut rooms, &st, &code_s, pid);
+            }
+        });
+    }
+}
+
+/// 연결이 완전히 끊긴(돌아오지 않은) 플레이어를 정리한다.
+/// 로비/종료면 자리 제거, 진행 중이면 자리 유지하되 차례/방장 등을 정리.
+fn cleanup_departed(
+    rooms: &mut std::collections::HashMap<String, Room>,
+    state: &Arc<AppState>,
+    code: &str,
+    pid: Uuid,
+) {
+    let Some(room) = rooms.get_mut(code) else {
+        return;
+    };
     let was_turn = room.current_turn() == Some(pid);
 
     // 진행 중이 아니면(로비/종료) 완전히 제거, 진행 중이면 자리 유지(끊김 표시).
