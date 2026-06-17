@@ -52,14 +52,21 @@ pub struct Player {
     pub id: Uuid,
     pub nickname: String,
     pub color_index: u8,
-    pub connected: bool,
     /// 팀전에서의 소속 팀 (0/1), 미배정이면 None. 클래식에서는 항상 None.
     pub team: Option<u8>,
     /// 마지막 채팅 전송 시각(ms). 채팅 속도 제한용.
     pub last_chat_ms: u64,
     /// 접속 IP (프록시 경유 시 "클라IP (proxy 프록시IP)" 형태).
     pub ip: String,
-    pub tx: Tx,
+    /// 같은 플레이어(같은 브라우저)의 여러 탭 연결. (conn_id, 송신 핸들)
+    /// 비어 있으면 = 접속 끊김(자리만 유지).
+    pub conns: Vec<(u64, Tx)>,
+}
+
+impl Player {
+    pub fn connected(&self) -> bool {
+        !self.conns.is_empty()
+    }
 }
 
 pub struct Room {
@@ -121,7 +128,7 @@ impl Room {
     pub fn team_connected(&self, team: u8) -> usize {
         self.players
             .iter()
-            .filter(|p| p.connected && p.team == Some(team))
+            .filter(|p| p.connected() && p.team == Some(team))
             .count()
     }
 
@@ -132,7 +139,7 @@ impl Room {
             .players
             .iter()
             .filter(|p| {
-                p.connected && p.team == Some(self.current_team) && self.votes.contains_key(&p.id)
+                p.connected() && p.team == Some(self.current_team) && self.votes.contains_key(&p.id)
             })
             .count() as u32;
         (voters, voted)
@@ -142,7 +149,7 @@ impl Room {
     pub fn tally(&self) -> HashMap<(u16, u16), u32> {
         let mut counts: HashMap<(u16, u16), u32> = HashMap::new();
         for p in &self.players {
-            if p.connected && p.team == Some(self.current_team) {
+            if p.connected() && p.team == Some(self.current_team) {
                 if let Some(&cell) = self.votes.get(&p.id) {
                     *counts.entry(cell).or_insert(0) += 1;
                 }
@@ -154,8 +161,10 @@ impl Room {
     /// 특정 팀의 연결된 인원에게만 전송.
     pub fn broadcast_team(&self, team: u8, msg: &ServerMsg) {
         for p in &self.players {
-            if p.connected && p.team == Some(team) {
-                let _ = p.tx.send(msg.clone());
+            if p.team == Some(team) {
+                for (_, tx) in &p.conns {
+                    let _ = tx.send(msg.clone());
+                }
             }
         }
     }
@@ -195,7 +204,7 @@ impl Room {
                 id: p.id,
                 nickname: p.nickname.clone(),
                 color_index: p.color_index,
-                connected: p.connected,
+                connected: p.connected(),
                 team: p.team,
                 ip: p.ip.clone(),
             })
@@ -223,11 +232,11 @@ impl Room {
         }
     }
 
-    /// 방의 연결된 전원에게 전송 (나갔거나 끊긴 사람은 제외).
+    /// 방의 연결된 전원에게 전송 (모든 탭 연결로 팬아웃).
     pub fn broadcast(&self, msg: &ServerMsg) {
         for p in &self.players {
-            if p.connected {
-                let _ = p.tx.send(msg.clone());
+            for (_, tx) in &p.conns {
+                let _ = tx.send(msg.clone());
             }
         }
     }

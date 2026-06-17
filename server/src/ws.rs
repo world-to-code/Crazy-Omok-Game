@@ -16,6 +16,10 @@ use crate::game::{check_win, gen_code};
 use crate::protocol::*;
 use crate::state::*;
 use rand::seq::SliceRandom;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// 연결(탭)마다 고유 id 발급.
+static NEXT_CONN: AtomicU64 = AtomicU64::new(1);
 
 /// 입력 글자 수 제한.
 const MAX_NICKNAME: usize = 12;
@@ -67,6 +71,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, ip: String) {
         }
     });
 
+    // 이 연결의 고유 id (탭 단위)
+    let conn_id = NEXT_CONN.fetch_add(1, Ordering::Relaxed);
     // 이 연결이 속한 (방 코드, 플레이어 id)
     let mut session: Option<(String, Uuid)> = None;
 
@@ -85,14 +91,20 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, ip: String) {
                 continue;
             }
         };
-        handle_client_msg(client_msg, &state, &tx, &mut session, &ip);
+        handle_client_msg(client_msg, &state, &tx, &mut session, &ip, conn_id);
     }
 
-    // 연결 종료: 자리 유지(소프트) 또는 제거(로비) 처리.
+    // 연결(탭) 종료: 이 연결만 제거. 마지막 탭이면 자리 정리/스킵 처리.
     if let Some((code, pid)) = session {
-        leave_room(&state, &code, pid);
+        handle_leave(&state, &code, pid, LeaveKind::Conn(conn_id));
     }
     send_task.abort();
+}
+
+/// 나가기 종류: 한 탭(연결)만 끊김 / 플레이어 전체 나가기(명시적 나가기).
+enum LeaveKind {
+    Conn(u64),
+    Full,
 }
 
 fn err(tx: &Tx, message: impl Into<String>) {
@@ -107,6 +119,7 @@ fn handle_client_msg(
     tx: &Tx,
     session: &mut Option<(String, Uuid)>,
     ip: &str,
+    conn_id: u64,
 ) {
     match msg {
         ClientMsg::ListRooms { query } => {
@@ -157,11 +170,10 @@ fn handle_client_msg(
                 id: pid,
                 nickname,
                 color_index: 0,
-                connected: true,
                 team: None,
                 last_chat_ms: 0,
                 ip: ip.to_string(),
-                tx: tx.clone(),
+                conns: vec![(conn_id, tx.clone())],
             };
             let room = Room {
                 code: code.clone(),
@@ -200,7 +212,7 @@ fn handle_client_msg(
         }
 
         ClientMsg::JoinByCode { code, nickname } => {
-            join_room(state, tx, session, &code, nickname, None, false, ip);
+            join_room(state, tx, session, &code, nickname, None, false, ip, conn_id);
         }
 
         ClientMsg::JoinBySearch {
@@ -208,7 +220,7 @@ fn handle_client_msg(
             nickname,
             password,
         } => {
-            join_room(state, tx, session, &code, nickname, password, true, ip);
+            join_room(state, tx, session, &code, nickname, password, true, ip, conn_id);
         }
 
         ClientMsg::Reconnect { code, player_id } => {
@@ -221,8 +233,9 @@ fn handle_client_msg(
                 err(tx, "재접속할 자리가 없습니다");
                 return;
             };
-            player.connected = true;
-            player.tx = tx.clone();
+            // 같은 플레이어(같은 브라우저)의 새 탭 연결 추가 → 모든 탭 동기화.
+            player.conns.retain(|(id, _)| *id != conn_id);
+            player.conns.push((conn_id, tx.clone()));
             player.ip = ip.to_string();
             *session = Some((code.clone(), player_id));
             let _ = tx.send(ServerMsg::Joined {
@@ -372,7 +385,7 @@ fn handle_client_msg(
             if room.mode != GameMode::Team {
                 return;
             }
-            if room.status != RoomStatus::Lobby {
+            if room.status == RoomStatus::Playing {
                 err(tx, "게임 중에는 팀을 바꿀 수 없습니다");
                 return;
             }
@@ -399,7 +412,7 @@ fn handle_client_msg(
                 err(tx, "방장만 팀을 배정할 수 있습니다");
                 return;
             }
-            if room.status != RoomStatus::Lobby {
+            if room.status == RoomStatus::Playing {
                 err(tx, "게임 중에는 팀을 바꿀 수 없습니다");
                 return;
             }
@@ -553,7 +566,7 @@ fn handle_client_msg(
 
         ClientMsg::LeaveRoom => {
             if let Some((code, pid)) = session.take() {
-                leave_room(state, &code, pid);
+                handle_leave(state, &code, pid, LeaveKind::Full);
             }
         }
     }
@@ -569,6 +582,7 @@ fn join_room(
     password: Option<String>,
     require_password: bool,
     ip: &str,
+    conn_id: u64,
 ) {
     let nickname = trim_len(nickname, MAX_NICKNAME, "익명");
     let mut rooms = state.rooms.lock().unwrap();
@@ -599,11 +613,10 @@ fn join_room(
         id: pid,
         nickname,
         color_index: color,
-        connected: true,
         team: None,
         last_chat_ms: 0,
         ip: ip.to_string(),
-        tx: tx.clone(),
+        conns: vec![(conn_id, tx.clone())],
     });
     *session = Some((code.to_string(), pid));
 
@@ -616,11 +629,34 @@ fn join_room(
 }
 
 /// 나가기/연결 종료 공용 처리.
-fn leave_room(state: &Arc<AppState>, code: &str, pid: Uuid) {
+fn handle_leave(state: &Arc<AppState>, code: &str, pid: Uuid, kind: LeaveKind) {
     let mut rooms = state.rooms.lock().unwrap();
     let Some(room) = rooms.get_mut(code) else {
         return;
     };
+
+    // 연결 정리
+    match kind {
+        // 탭 하나 종료: 그 연결만 제거. 다른 탭이 남아있으면 변화 없음.
+        LeaveKind::Conn(conn_id) => {
+            let Some(p) = room.find_mut(pid) else {
+                return;
+            };
+            p.conns.retain(|(id, _)| *id != conn_id);
+            if p.connected() {
+                return;
+            }
+        }
+        // 명시적 나가기: 이 플레이어의 모든 탭 연결 제거.
+        LeaveKind::Full => {
+            let Some(p) = room.find_mut(pid) else {
+                return;
+            };
+            p.conns.clear();
+        }
+    }
+
+    // 여기부터는 이 플레이어가 더 이상 연결이 없는 경우.
     let was_turn = room.current_turn() == Some(pid);
 
     // 진행 중이 아니면(로비/종료) 완전히 제거, 진행 중이면 자리 유지(끊김 표시).
@@ -628,13 +664,11 @@ fn leave_room(state: &Arc<AppState>, code: &str, pid: Uuid) {
         room.players.retain(|p| p.id != pid);
         room.order.retain(|&id| id != pid);
         room.votes.remove(&pid);
-    } else if let Some(p) = room.find_mut(pid) {
-        p.connected = false;
     }
 
     // 방장 위임 (새 방장은 흰색으로)
     if room.host_id == pid {
-        if let Some(next) = room.players.iter().find(|p| p.connected).map(|p| p.id) {
+        if let Some(next) = room.players.iter().find(|p| p.connected()).map(|p| p.id) {
             room.host_id = next;
             if let Some(p) = room.find_mut(next) {
                 p.color_index = 0;
@@ -643,7 +677,7 @@ fn leave_room(state: &Arc<AppState>, code: &str, pid: Uuid) {
     }
 
     // 연결된 사람이 없으면 방 삭제
-    if room.players.is_empty() || !room.players.iter().any(|p| p.connected) {
+    if room.players.is_empty() || !room.players.iter().any(|p| p.connected()) {
         rooms.remove(code);
         return;
     }
@@ -744,7 +778,7 @@ fn begin_turn(room: &mut Room) -> Option<Uuid> {
     }
     for _ in 0..n {
         let id = room.order[room.turn_idx];
-        let connected = room.find(id).map(|p| p.connected).unwrap_or(false);
+        let connected = room.find(id).map(|p| p.connected()).unwrap_or(false);
         if connected {
             room.turn_generation += 1;
             room.deadline_ms = Some(now_ms() + room.turn_limit_secs as u64 * 1000);

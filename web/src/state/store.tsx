@@ -334,8 +334,31 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     connect();
 
+    // 같은 브라우저의 다른 탭에서 입장/퇴장하면 이 탭도 동기화.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== "omok_session") return;
+      const ws = wsRef.current;
+      if (e.newValue) {
+        // 다른 탭이 방에 입장 → 이 탭도 같은 자리로 재접속.
+        try {
+          const sess = JSON.parse(e.newValue);
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            reconnectPending.current = true;
+            ws.send(JSON.stringify({ type: "Reconnect", code: sess.code, player_id: sess.playerId }));
+          }
+        } catch {
+          // ignore
+        }
+      } else {
+        // 다른 탭이 나감 → 이 탭도 홈으로.
+        dispatch({ kind: "reset" });
+      }
+    };
+    window.addEventListener("storage", onStorage);
+
     return () => {
       stopped = true;
+      window.removeEventListener("storage", onStorage);
       if (retryTimer) clearTimeout(retryTimer);
       reconnectPending.current = false;
       wsRef.current?.close();

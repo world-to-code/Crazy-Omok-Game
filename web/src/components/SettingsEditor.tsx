@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useGame } from "../state/store";
 
 const ALL_SIZES = [15, 19, 25, 30, 40, 60, 100];
@@ -12,38 +12,31 @@ function recommended(maxPlayers: number): number[] {
 
 export default function SettingsEditor() {
   const { state, send } = useGame();
-  const { settings, players } = state;
+  const { settings, players, mode } = state;
+  const isTeam = mode === "team";
 
-  const [name, setName] = useState("");
-  const [maxPlayers, setMaxPlayers] = useState(2);
-  const [boardSize, setBoardSize] = useState(15);
-  const [winLength, setWinLength] = useState(5);
-  const [turnLimit, setTurnLimit] = useState(30);
+  // 에디터가 열릴 때(마운트 시) 현재 설정으로 1회 초기화.
+  // (스냅샷이 들어와도 편집 중 폼이 리셋되지 않도록 useEffect 동기화는 쓰지 않음)
+  const [name, setName] = useState(settings?.name ?? "");
+  const [maxPlayers, setMaxPlayers] = useState(settings?.max_players ?? 2);
+  const [boardSize, setBoardSize] = useState(settings?.board_size ?? 15);
+  const [winLength, setWinLength] = useState(settings?.win_length ?? 5);
+  const [turnLimit, setTurnLimit] = useState(settings?.turn_limit_secs ?? 30);
   const [changePw, setChangePw] = useState(false);
   const [pw, setPw] = useState("");
-
-  // 서버 설정이 바뀌면 폼을 동기화.
-  useEffect(() => {
-    if (!settings) return;
-    setName(settings.name);
-    setMaxPlayers(settings.max_players);
-    setBoardSize(settings.board_size);
-    setWinLength(settings.win_length);
-    setTurnLimit(settings.turn_limit_secs);
-    setChangePw(false);
-    setPw("");
-  }, [settings]);
 
   if (!settings) return null;
 
   const minPlayers = Math.max(2, players.length);
-  const rec = recommended(maxPlayers);
+  const recPlayers = isTeam ? 6 : maxPlayers;
+  const rec = isTeam ? [25, 40, 60] : recommended(recPlayers);
 
   function save() {
     send({
       type: "UpdateSettings",
       name: name.trim() || "오목방",
-      max_players: maxPlayers,
+      // 팀전은 인원 무제한이라 서버가 무시하지만 형식상 현재값 전송.
+      max_players: isTeam ? settings!.max_players : Math.max(maxPlayers, minPlayers),
       board_size: boardSize,
       win_length: winLength,
       turn_limit_secs: turnLimit,
@@ -58,17 +51,21 @@ export default function SettingsEditor() {
           방 이름
           <input value={name} maxLength={20} onChange={(e) => setName(e.target.value)} />
         </label>
-        <label>
-          참가 인원: <b>{maxPlayers}명</b>
-          {minPlayers > 2 && <small>현재 {players.length}명 — 그 이하로는 줄일 수 없어요</small>}
-          <input
-            type="range"
-            min={minPlayers}
-            max={20}
-            value={Math.max(maxPlayers, minPlayers)}
-            onChange={(e) => setMaxPlayers(+e.target.value)}
-          />
-        </label>
+        {isTeam ? (
+          <div className="team-note">팀전은 인원 제한이 없습니다.</div>
+        ) : (
+          <label>
+            참가 인원: <b>{maxPlayers}명</b>
+            {minPlayers > 2 && <small>현재 {players.length}명 — 그 이하로는 줄일 수 없어요</small>}
+            <input
+              type="range"
+              min={minPlayers}
+              max={20}
+              value={Math.min(20, Math.max(maxPlayers, minPlayers))}
+              onChange={(e) => setMaxPlayers(+e.target.value)}
+            />
+          </label>
+        )}
         <label>
           오목판 크기
           <select value={boardSize} onChange={(e) => setBoardSize(+e.target.value)}>
