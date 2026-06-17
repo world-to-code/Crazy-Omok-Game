@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useGame } from "../state/store";
-import { COLORS, TEAM_NAMES } from "../types";
+import { TEAM_NAMES, playerColor } from "../types";
 import PlayerList from "../components/PlayerList";
 import Chat from "../components/Chat";
 import SettingsEditor from "../components/SettingsEditor";
@@ -80,7 +80,7 @@ export default function Lobby() {
           )}
         </div>
 
-        {isHost && editing && <SettingsEditor />}
+        {isHost && editing && <SettingsEditor onSaved={() => setEditing(false)} />}
 
         {status === "finished" && <div className="banner">이전 게임이 종료되었습니다. 다시 시작할 수 있어요.</div>}
 
@@ -124,7 +124,7 @@ export default function Lobby() {
                       if (!p) return null;
                       return (
                         <li key={id}>
-                          <span className="color-dot" style={{ background: COLORS[p.color_index] }} />
+                          <span className="color-dot" style={{ background: playerColor(p.color_index) }} />
                           {p.nickname}
                           <span className="ord-btns">
                             <button onClick={() => move(i, -1)} disabled={i === 0}>▲</button>

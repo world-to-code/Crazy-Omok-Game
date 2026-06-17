@@ -75,6 +75,8 @@ pub enum ClientMsg {
     Chat { text: String },
     /// 방 나가기.
     LeaveRoom,
+    /// (방장) 특정 인원 강퇴.
+    KickPlayer { player_id: Uuid },
 }
 
 /// 서버 → 클라이언트
@@ -105,11 +107,14 @@ pub enum ServerMsg {
         winner: Option<Uuid>,
         winning_team: Option<u8>,
         winning_line: Vec<[u16; 2]>,
+        /// 서버 현재 시각(ms). 클라이언트가 시계 차이를 보정하는 데 사용.
+        server_now_ms: u64,
     },
     GameStarted {
         order: Vec<Uuid>,
         current_turn: Uuid,
         deadline_ms: u64,
+        server_now_ms: u64,
     },
     StonePlaced {
         x: u16,
@@ -120,11 +125,13 @@ pub enum ServerMsg {
     TurnChanged {
         current_turn: Uuid,
         deadline_ms: u64,
+        server_now_ms: u64,
     },
     /// (팀전) 팀 차례 시작/전환. 클라이언트는 투표 표시를 초기화.
     TeamTurn {
         team: u8,
         deadline_ms: u64,
+        server_now_ms: u64,
     },
     /// (팀전) 현재 팀의 투표 현황 — 해당 팀원에게만 전송.
     VoteUpdate {
@@ -146,6 +153,8 @@ pub enum ServerMsg {
     Error {
         message: String,
     },
+    /// 방장에 의해 강퇴됨.
+    Kicked,
 }
 
 #[derive(Debug, Clone, Serialize)]

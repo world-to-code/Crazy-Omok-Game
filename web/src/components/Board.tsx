@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useGame } from "../state/store";
-import { COLORS, TEAM_COLORS } from "../types";
+import { TEAM_COLORS, playerColor } from "../types";
 
 export default function Board() {
   const { state, send } = useGame();
@@ -10,7 +10,7 @@ export default function Board() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const n = settings?.board_size ?? 15;
   const isTeam = mode === "team";
-  const palette = isTeam ? TEAM_COLORS : COLORS;
+  const colorOf = (c: number) => (isTeam ? TEAM_COLORS[c] ?? "#000" : playerColor(c));
 
   const myTeam = players.find((p) => p.id === myId)?.team ?? null;
   const myTurn =
@@ -82,7 +82,7 @@ export default function Board() {
       const cy = px(y);
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fillStyle = palette[color] ?? "#000";
+      ctx.fillStyle = colorOf(color);
       ctx.fill();
       const light = !isTeam && color === 0;
       ctx.lineWidth = light ? 1.5 : 1;
@@ -105,7 +105,7 @@ export default function Board() {
     }
 
     if (isTeam && votes.size > 0) {
-      const base = myTeam != null ? palette[myTeam] : "#457b9d";
+      const base = myTeam != null ? colorOf(myTeam) : "#457b9d";
       const denom = Math.max(voteVoters, 1);
       for (const [k, count] of votes) {
         const [x, y] = k.split(",").map(Number);
@@ -127,7 +127,8 @@ export default function Board() {
         }
       }
     }
-  }, [board, winningLine, lastMove, cell, n, dim, votes, voteVoters, isTeam, myTeam, palette]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board, winningLine, lastMove, cell, n, dim, votes, voteVoters, isTeam, myTeam]);
 
   function onClick(e: React.MouseEvent<HTMLCanvasElement>) {
     if (!myTurn) return;
@@ -156,7 +157,7 @@ export default function Board() {
           </span>
         )}
       </div>
-      <div className="board-scroll" ref={scrollRef} style={{ maxHeight: avail.h }}>
+      <div className={`board-scroll${myTurn ? " my-turn" : ""}`} ref={scrollRef} style={{ maxHeight: avail.h }}>
         <canvas ref={canvasRef} onClick={onClick} style={{ cursor: myTurn ? "pointer" : "default" }} />
       </div>
     </div>

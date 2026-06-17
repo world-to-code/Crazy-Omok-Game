@@ -674,6 +674,39 @@ input[type="range"] {
 }
 .turn-info .turn-me {
   color: var(--accent);
+  font-size: 1.35rem;
+  font-weight: 900;
+  padding: 4px 14px;
+  border-radius: 10px;
+  background: rgba(255, 214, 10, 0.15);
+  box-shadow: 0 0 0 2px var(--accent);
+  animation: turnpulse 1s ease-in-out infinite;
+}
+@keyframes turnpulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 2px var(--accent); }
+  50% { transform: scale(1.06); box-shadow: 0 0 14px 2px rgba(255, 214, 10, 0.7); }
+}
+
+/* 내 차례일 때 보드 강조 */
+.board-scroll.my-turn {
+  box-shadow: 0 0 0 4px var(--accent), 0 0 32px rgba(255, 214, 10, 0.55);
+  animation: boardglow 1.2s ease-in-out infinite;
+}
+@keyframes boardglow {
+  0%, 100% { box-shadow: 0 0 0 4px var(--accent), 0 0 24px rgba(255, 214, 10, 0.45); }
+  50% { box-shadow: 0 0 0 4px var(--accent), 0 0 40px rgba(255, 214, 10, 0.85); }
+}
+
+.kick-btn {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  background: #4a1d22;
+  color: #ff9aa3;
+  border-radius: 6px;
+}
+.kick-btn:hover {
+  background: var(--danger);
+  color: #fff;
 }
 .rule-info {
   margin-left: auto;
@@ -692,8 +725,11 @@ input[type="range"] {
 }
 .your-turn-badge {
   margin-left: auto;
-  color: var(--accent);
-  font-weight: 700;
+  color: #111;
+  background: var(--accent);
+  font-weight: 800;
+  padding: 4px 12px;
+  border-radius: 999px;
 }
 .board-scroll {
   max-width: 100%;

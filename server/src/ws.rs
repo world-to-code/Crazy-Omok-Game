@@ -339,6 +339,7 @@ fn handle_client_msg(
                 room.broadcast(&ServerMsg::TeamTurn {
                     team: first,
                     deadline_ms: deadline,
+                    server_now_ms: now_ms(),
                 });
                 let snap = room.snapshot();
                 room.broadcast(&snap);
@@ -368,6 +369,7 @@ fn handle_client_msg(
                         order: room.order.clone(),
                         current_turn: current,
                         deadline_ms: deadline,
+                    server_now_ms: now_ms(),
                     });
                     let snap = room.snapshot();
                     room.broadcast(&snap);
@@ -531,6 +533,7 @@ fn handle_client_msg(
                 room.broadcast(&ServerMsg::TurnChanged {
                     current_turn: next,
                     deadline_ms: deadline,
+                    server_now_ms: now_ms(),
                 });
                 spawn_turn_timer(state.clone(), code, generation, limit);
             }
@@ -570,6 +573,39 @@ fn handle_client_msg(
             if let Some((code, pid)) = session.take() {
                 handle_leave(state, &code, pid, LeaveKind::Full);
             }
+        }
+
+        ClientMsg::KickPlayer { player_id } => {
+            let Some((code, pid)) = session.clone() else {
+                return;
+            };
+            let mut rooms = state.rooms.lock().unwrap();
+            let Some(room) = rooms.get_mut(&code) else {
+                return;
+            };
+            if room.host_id != pid {
+                err(tx, "방장만 강퇴할 수 있습니다");
+                return;
+            }
+            if player_id == pid {
+                err(tx, "자신은 강퇴할 수 없습니다");
+                return;
+            }
+            if room.status == RoomStatus::Playing {
+                err(tx, "게임 중에는 강퇴할 수 없습니다");
+                return;
+            }
+            // 대상에게 강퇴 알림 후 연결 비우기.
+            if let Some(target) = room.find_mut(player_id) {
+                for (_, t) in &target.conns {
+                    let _ = t.send(ServerMsg::Kicked);
+                }
+                target.conns.clear();
+            } else {
+                return;
+            }
+            // 방에서 제거 (진행 중이 아니므로 cleanup_departed가 자리 제거).
+            cleanup_departed(&mut rooms, state, &code, player_id);
         }
     }
 }
@@ -738,6 +774,7 @@ fn cleanup_departed(
             room.broadcast(&ServerMsg::TurnChanged {
                 current_turn: next,
                 deadline_ms: deadline,
+                    server_now_ms: now_ms(),
             });
             spawn_turn_timer(state.clone(), code.to_string(), generation, limit);
         }
@@ -804,6 +841,7 @@ fn resolve_team_turn(state: &Arc<AppState>, room: &mut Room, code: &str) {
     room.broadcast(&ServerMsg::TeamTurn {
         team,
         deadline_ms: deadline,
+                    server_now_ms: now_ms(),
     });
     spawn_turn_timer(state.clone(), code.to_string(), generation, limit);
 }
@@ -857,6 +895,7 @@ fn spawn_turn_timer(state: Arc<AppState>, code: String, generation: u64, limit_s
             room.broadcast(&ServerMsg::TurnChanged {
                 current_turn: next,
                 deadline_ms: deadline,
+                    server_now_ms: now_ms(),
             });
             spawn_turn_timer(state.clone(), code.clone(), new_gen, limit);
         }
@@ -868,17 +907,12 @@ fn shuffle(mut ids: Vec<Uuid>) -> Vec<Uuid> {
     ids
 }
 
-/// 일반 참가자 색 배정: 흰색(0, 방장 전용)을 제외한 1..PALETTE_COLORS 중
-/// 아직 쓰이지 않은 색을 랜덤으로. 모두 쓰였으면 그냥 랜덤.
+/// 일반 참가자 색 배정: 흰색(0, 방장 전용)을 제외하고 아직 쓰이지 않은
+/// 가장 작은 색 인덱스를 부여. 클라이언트가 인덱스 → 황금각 색상으로 변환하므로
+/// 중복 없음 + 서로 충분히 다른 색이 보장된다.
 fn assign_color(room: &Room) -> u8 {
     let used: std::collections::HashSet<u8> = room.players.iter().map(|p| p.color_index).collect();
-    let mut rng = rand::thread_rng();
-    let avail: Vec<u8> = (1..PALETTE_COLORS).filter(|c| !used.contains(c)).collect();
-    if let Some(&c) = avail.choose(&mut rng) {
-        c
-    } else {
-        (1..PALETTE_COLORS).collect::<Vec<u8>>().choose(&mut rng).copied().unwrap_or(1)
-    }
+    (1u8..=254).find(|c| !used.contains(c)).unwrap_or(1)
 }
 
 fn is_permutation(order: &[Uuid], players: &[Player]) -> bool {

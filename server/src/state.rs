@@ -96,9 +96,6 @@ pub struct Room {
     pub votes: HashMap<Uuid, (u16, u16)>,
 }
 
-/// 색 팔레트 크기. 인덱스 0 = 흰색(방장 전용), 1..PALETTE_COLORS = 일반 색.
-pub const PALETTE_COLORS: u8 = 21;
-
 impl Room {
     pub fn find(&self, id: Uuid) -> Option<&Player> {
         self.players.iter().find(|p| p.id == id)
@@ -229,6 +226,7 @@ impl Room {
             winner: self.winner,
             winning_team: self.winner_team,
             winning_line: self.winning_line.clone(),
+            server_now_ms: now_ms(),
         }
     }
 

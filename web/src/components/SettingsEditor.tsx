@@ -10,10 +10,11 @@ function recommended(maxPlayers: number): number[] {
   return [60, 100];
 }
 
-export default function SettingsEditor() {
+export default function SettingsEditor({ onSaved }: { onSaved?: () => void }) {
   const { state, send } = useGame();
   const { settings, players, mode } = state;
   const isTeam = mode === "team";
+  const [saved, setSaved] = useState(false);
 
   // 에디터가 열릴 때(마운트 시) 현재 설정으로 1회 초기화.
   // (스냅샷이 들어와도 편집 중 폼이 리셋되지 않도록 useEffect 동기화는 쓰지 않음)
@@ -42,6 +43,9 @@ export default function SettingsEditor() {
       turn_limit_secs: turnLimit,
       password: changePw ? pw.trim() : null, // null=변경안함, ""=제거, 값=설정
     });
+    // 저장됨 표시 후 에디터 닫기.
+    setSaved(true);
+    setTimeout(() => onSaved?.(), 700);
   }
 
   return (
@@ -100,7 +104,9 @@ export default function SettingsEditor() {
             />
           )}
         </label>
-        <button className="primary" onClick={save}>설정 저장</button>
+        <button className="primary" onClick={save} disabled={saved}>
+          {saved ? "✓ 저장되었습니다" : "설정 저장"}
+        </button>
       </div>
     </div>
   );

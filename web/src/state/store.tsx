@@ -139,7 +139,7 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         status: m.status,
         currentTurn: m.current_turn,
         currentTeam: m.current_team,
-        deadlineMs: m.deadline_ms,
+        deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
         winner: m.winner,
         winningTeam: m.winning_team,
         winningLine,
@@ -157,7 +157,7 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         status: "playing",
         order: m.order,
         currentTurn: m.current_turn,
-        deadlineMs: m.deadline_ms,
+        deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
         winner: null,
         winningLine: new Set(),
         lastMove: null,
@@ -177,13 +177,17 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
       };
     }
     case "TurnChanged":
-      return { ...s, currentTurn: m.current_turn, deadlineMs: m.deadline_ms };
+      return {
+        ...s,
+        currentTurn: m.current_turn,
+        deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
+      };
     case "TeamTurn":
       return {
         ...s,
         status: "playing",
         currentTeam: m.team,
-        deadlineMs: m.deadline_ms,
+        deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
         winner: null,
         winningTeam: null,
         winningLine: new Set(),
@@ -224,7 +228,22 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
       };
     case "Error":
       return { ...s, error: m.message };
+    case "Kicked":
+      clearSession();
+      return {
+        ...initial,
+        connected: s.connected,
+        roomList: s.roomList,
+        screen: "home",
+        error: "방장에 의해 강퇴되었습니다",
+      };
   }
+}
+
+// 서버 시각 기준 deadline을 로컬 시각 기준으로 변환 (시계 차이 보정).
+function toLocalDeadline(deadlineMs: number | null, serverNowMs: number): number | null {
+  if (deadlineMs == null) return null;
+  return Date.now() + (deadlineMs - serverNowMs);
 }
 
 function saveSession(code: string, playerId: string) {

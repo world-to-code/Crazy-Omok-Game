@@ -1,5 +1,5 @@
 import { useGame } from "../state/store";
-import { COLORS, TEAM_COLORS, TEAM_NAMES } from "../types";
+import { TEAM_COLORS, TEAM_NAMES, playerColor } from "../types";
 import Board from "../components/Board";
 import Countdown from "../components/Countdown";
 import PlayerList from "../components/PlayerList";
@@ -27,7 +27,7 @@ export default function Game() {
               </span>
             ) : turnPlayer ? (
               <span className={myTurn ? "turn-me" : ""}>
-                <span className="color-dot" style={{ background: COLORS[turnPlayer.color_index] }} />
+                <span className="color-dot" style={{ background: playerColor(turnPlayer.color_index) }} />
                 {myTurn ? "내 차례" : `${turnPlayer.nickname} 님의 차례`}
               </span>
             ) : (
@@ -71,7 +71,7 @@ export default function Game() {
               <p>
                 <span
                   className="color-dot"
-                  style={{ background: COLORS[players.find((p) => p.id === winner)?.color_index ?? 0] }}
+                  style={{ background: playerColor(players.find((p) => p.id === winner)?.color_index ?? 0) }}
                 />
                 <b>{players.find((p) => p.id === winner)?.nickname}</b> 님 승리!
               </p>
