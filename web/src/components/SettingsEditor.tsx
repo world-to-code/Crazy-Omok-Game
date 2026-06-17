@@ -12,8 +12,9 @@ function recommended(maxPlayers: number): number[] {
 
 export default function SettingsEditor({ onSaved }: { onSaved?: () => void }) {
   const { state, send } = useGame();
-  const { settings, players, mode } = state;
-  const isTeam = mode === "team";
+  const { settings, players, mode, game } = state;
+  const isFlick = game === "flick";
+  const isTeam = mode === "team" && !isFlick;
   const [saved, setSaved] = useState(false);
 
   // 에디터가 열릴 때(마운트 시) 현재 설정으로 1회 초기화.
@@ -64,30 +65,34 @@ export default function SettingsEditor({ onSaved }: { onSaved?: () => void }) {
             <input
               type="range"
               min={minPlayers}
-              max={20}
-              value={Math.min(20, Math.max(maxPlayers, minPlayers))}
+              max={isFlick ? 10 : 20}
+              value={Math.min(isFlick ? 10 : 20, Math.max(maxPlayers, minPlayers))}
               onChange={(e) => setMaxPlayers(+e.target.value)}
             />
           </label>
         )}
+        {!isFlick && (
+          <>
+            <label>
+              오목판 크기
+              <select value={boardSize} onChange={(e) => setBoardSize(+e.target.value)}>
+                {ALL_SIZES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}×{s}
+                    {rec.includes(s) ? " (추천)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              승리 길이(몇 목): <b>{winLength}목</b>
+              <input type="range" min={3} max={10} value={winLength} onChange={(e) => setWinLength(+e.target.value)} />
+            </label>
+          </>
+        )}
         <label>
-          오목판 크기
-          <select value={boardSize} onChange={(e) => setBoardSize(+e.target.value)}>
-            {ALL_SIZES.map((s) => (
-              <option key={s} value={s}>
-                {s}×{s}
-                {rec.includes(s) ? " (추천)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          승리 길이(몇 목): <b>{winLength}목</b>
-          <input type="range" min={3} max={10} value={winLength} onChange={(e) => setWinLength(+e.target.value)} />
-        </label>
-        <label>
-          차례당 제한시간: <b>{turnLimit}초</b>
-          <input type="range" min={5} max={120} step={5} value={turnLimit} onChange={(e) => setTurnLimit(+e.target.value)} />
+          {isFlick ? "조준 제한시간" : "차례당 제한시간"}: <b>{turnLimit}초</b>
+          <input type="range" min={5} max={isFlick ? 60 : 120} step={5} value={turnLimit} onChange={(e) => setTurnLimit(+e.target.value)} />
         </label>
         <label className="pw-edit">
           <span className="pw-row">

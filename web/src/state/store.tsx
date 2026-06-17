@@ -90,6 +90,14 @@ const initial: GameState = {
 
 const key = (x: number, y: number) => `${x},${y}`;
 
+// 상태에 따른 화면 결정: 진행 중이면 게임, 대기면 로비.
+// 종료 상태에선 이미 로비/게임에 있으면 그대로 둠(종료 후 로비로 나왔는데 튕기는 것 방지).
+function screenFor(status: string, current: Screen): Screen {
+  if (status === "playing") return "game";
+  if (status === "lobby") return "lobby";
+  return current === "lobby" || current === "game" ? current : "game";
+}
+
 type Action =
   | { kind: "msg"; msg: ServerMsg }
   | { kind: "connected"; value: boolean }
@@ -153,11 +161,7 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
       const board = new Map<string, number>();
       for (const st of m.board) board.set(key(st.x, st.y), st.color);
       const winningLine = new Set(m.winning_line.map(([x, y]) => key(x, y)));
-      // 이미 방 안(로비/게임)에 있으면 스냅샷이 화면을 강제로 옮기지 않는다.
-      // (게임 종료 후 로비로 나왔는데 다른 사람이 나가면 종료화면으로 튕기던 버그 방지)
-      // 처음 입장/재접속 때만 상태에 맞춰 화면을 정한다.
-      const alreadyInRoom = s.screen === "lobby" || s.screen === "game";
-      const screen: Screen = alreadyInRoom ? s.screen : m.status === "lobby" ? "lobby" : "game";
+      const screen = screenFor(m.status, s.screen);
       return {
         ...s,
         settings: m.settings,
@@ -257,8 +261,7 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         ].slice(-200),
       };
     case "FlickSnapshot": {
-      const inRoom = s.screen === "lobby" || s.screen === "game";
-      const screen: Screen = inRoom ? s.screen : m.status === "lobby" ? "lobby" : "game";
+      const screen = screenFor(m.status, s.screen);
       return {
         ...s,
         game: "flick",

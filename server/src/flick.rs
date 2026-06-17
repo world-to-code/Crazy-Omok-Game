@@ -16,7 +16,8 @@ const RESTITUTION: f64 = 0.92;
 const MAX_STEPS: usize = 720; // 최대 6초
 const KEYFRAME_EVERY: usize = 5; // 약 24fps로 기록
 const STOP_SPEED: f64 = 6.0;
-const DMG_K: f64 = 0.006; // 충돌속도→데미지 계수
+const DMG_K: f64 = 0.0045; // 충돌속도→데미지 계수
+const WALL_RESTITUTION: f64 = 0.9;
 const EXPLOSION_R: f64 = 120.0;
 
 /// 공격 계열 / 유틸 계열에서 하나씩 뽑아 2개 제시(서로 다른 성격).
@@ -240,12 +241,24 @@ impl FlickGame {
                 }
             }
 
-            // 장외 판정
+            // 벽 충돌(튕김) — 장외 즉사 없음, HP로만 승부.
+            let arena = self.arena_r;
             for m in self.marbles.iter_mut() {
-                if m.alive && (m.x * m.x + m.y * m.y).sqrt() > self.arena_r {
-                    m.alive = false;
-                    m.vx = 0.0;
-                    m.vy = 0.0;
+                if !m.alive {
+                    continue;
+                }
+                let d = (m.x * m.x + m.y * m.y).sqrt();
+                let limit = arena - m.r;
+                if d > limit && d > 0.0001 {
+                    let nx = m.x / d;
+                    let ny = m.y / d;
+                    m.x = nx * limit;
+                    m.y = ny * limit;
+                    let vn = m.vx * nx + m.vy * ny;
+                    if vn > 0.0 {
+                        m.vx -= (1.0 + WALL_RESTITUTION) * vn * nx;
+                        m.vy -= (1.0 + WALL_RESTITUTION) * vn * ny;
+                    }
                 }
             }
 
@@ -391,27 +404,62 @@ impl FlickGame {
     }
 }
 
+/// 능력별 스탯 차등 (기본 hp100/atk10/def5/mass1 위에 덮어쓰기).
 fn apply_power_stats(m: &mut Marble) {
     match m.power.as_str() {
+        // 광역 폭발: 단일 공격력은 낮지만 주변 동시 타격.
+        "explosion" => {
+            m.atk = 8;
+            m.def = 4;
+        }
+        // 관통: 높은 공격력·다중 타격, 대신 약체.
+        "pierce" => {
+            m.atk = 13;
+            m.def = 4;
+            m.max_hp = 90;
+            m.hp = 90;
+        }
+        // 강철: 탱커. 공격력 낮고 방어·체력·질량 높음.
         "iron" => {
-            m.def += 8;
-            m.mass = 2.0;
-            m.max_hp += 20;
-            m.hp = m.max_hp;
+            m.atk = 6;
+            m.def = 14;
+            m.mass = 2.2;
+            m.max_hp = 130;
+            m.hp = 130;
         }
-        "heavy" => {
-            m.atk += 8;
-            m.mass = 1.6;
-            m.max_hp += 10;
-            m.hp = m.max_hp;
-        }
+        // 보호막: 평균 + 첫 피해 무효.
         "shield" => {
+            m.atk = 9;
+            m.def = 6;
             m.shield = true;
         }
-        "spikes" => {
-            m.def += 2;
+        // 슬링샷: 발사 속도가 빨라(×1.4) 충격 데미지가 큼.
+        "slingshot" => {
+            m.atk = 9;
+            m.def = 5;
+            m.max_hp = 95;
+            m.hp = 95;
         }
-        // explosion / pierce / slingshot / lifesteal: 기본 스탯 + 동작으로 표현
+        // 헤비샷: 최고 공격력 + 무거움.
+        "heavy" => {
+            m.atk = 20;
+            m.def = 6;
+            m.mass = 1.7;
+            m.max_hp = 115;
+            m.hp = 115;
+        }
+        // 흡혈: 준수한 공격력 + 입힌 피해 절반 회복.
+        "lifesteal" => {
+            m.atk = 12;
+            m.def = 5;
+        }
+        // 가시: 공격력 낮지만 반사 + 맷집.
+        "spikes" => {
+            m.atk = 7;
+            m.def = 8;
+            m.max_hp = 110;
+            m.hp = 110;
+        }
         _ => {}
     }
 }
