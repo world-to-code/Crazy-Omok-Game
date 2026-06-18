@@ -125,7 +125,7 @@ export interface FlickMarble {
   color_index: number;
 }
 
-// 초능력 8종 표시 정보 (color = 알 테두리 강조색)
+// 초능력 13종 표시 정보 (color = 알 테두리 강조색)
 export const POWER_INFO: Record<string, { name: string; emoji: string; desc: string; color: string }> = {
   explosion: { name: "폭발", emoji: "💥", desc: "충돌 시 주변에 광역 넉백 + 피해", color: "#fb923c" },
   pierce: { name: "관통", emoji: "🏹", desc: "충돌해도 멈추지 않고 뚫고 지나감", color: "#38bdf8" },
@@ -135,6 +135,11 @@ export const POWER_INFO: Record<string, { name: string; emoji: string; desc: str
   heavy: { name: "헤비샷", emoji: "🔨", desc: "공격력↑·무거움", color: "#b45309" },
   lifesteal: { name: "흡혈", emoji: "🧛", desc: "입힌 피해의 절반만큼 체력 회복", color: "#c084fc" },
   spikes: { name: "가시", emoji: "🌵", desc: "맞을 때 공격자에게 반동 피해", color: "#f87171" },
+  giant: { name: "거인", emoji: "🐘", desc: "거대한 몸집·높은 체력/질량(잘 안 밀림)", color: "#a3a3a3" },
+  berserker: { name: "광전사", emoji: "😤", desc: "체력이 낮을수록 공격력이 강해짐(최대 2배)", color: "#dc2626" },
+  frost: { name: "서리", emoji: "❄️", desc: "맞춘 상대의 다음 발사가 느려짐", color: "#38bdf8" },
+  chain: { name: "전격", emoji: "⚡", desc: "충돌 시 주변 알에게 연쇄 피해", color: "#facc15" },
+  regen: { name: "재생", emoji: "♻️", desc: "매 차례마다 체력 일부 회복", color: "#34d399" },
 };
 
 export interface Stone {

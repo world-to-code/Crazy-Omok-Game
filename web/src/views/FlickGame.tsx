@@ -233,9 +233,9 @@ function Arena() {
           ? 6
           : kind === "spike" || kind === "reflect"
             ? 10
-            : kind === "heal"
+            : kind === "heal" || kind === "frost"
               ? 0
-              : Math.min(15, 6 + amount * 0.3); // 일반 타격: 큰 피해(헤비 등)일수록 크게
+              : Math.min(15, 6 + amount * 0.3); // 일반/전격 타격: 큰 피해일수록 크게
       if (mag > 0) shakeRef.current = { until: now + (big ? 470 : 260), mag };
     };
 
@@ -554,7 +554,7 @@ function Arena() {
       const live: typeof particlesRef.current = [];
       for (const pt of particlesRef.current) {
         const life =
-          pt.kind === "explode" ? 650 : pt.kind === "ko" ? 800 : pt.kind === "heal" ? 700 : pt.kind === "spike" || pt.kind === "reflect" ? 430 : pt.kind === "shield" ? 520 : 340;
+          pt.kind === "explode" ? 650 : pt.kind === "ko" ? 800 : pt.kind === "heal" ? 700 : pt.kind === "spike" || pt.kind === "reflect" ? 430 : pt.kind === "shield" ? 520 : pt.kind === "frost" ? 480 : pt.kind === "chain" ? 380 : 340;
         const age = nowp - pt.t0;
         if (age > life) continue;
         live.push(pt);
@@ -1037,6 +1037,44 @@ function drawParticle(
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("🛡", x, y);
+    ctx.restore();
+    return;
+  }
+  if (kind === "frost") {
+    // 서리: 청록 결정(눈) 폭발
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = "#7dd3fc";
+    ctx.lineWidth = 2.5 * fade;
+    const r = 26 * zoom * (0.4 + t);
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+      // 가지
+      ctx.moveTo(x + Math.cos(a) * r * 0.6, y + Math.sin(a) * r * 0.6);
+      ctx.lineTo(x + Math.cos(a + 0.4) * r * 0.85, y + Math.sin(a + 0.4) * r * 0.85);
+      ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
+  if (kind === "chain") {
+    // 전격: 들쭉날쭉한 번개 폭발
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = "#fde047";
+    ctx.lineWidth = 2.5 * fade;
+    const r = 30 * zoom * (0.4 + t);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + t * 2;
+      const mx = x + Math.cos(a + 0.3) * r * 0.55;
+      const my = y + Math.sin(a + 0.3) * r * 0.55;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(mx, my);
+      ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+      ctx.stroke();
+    }
     ctx.restore();
     return;
   }

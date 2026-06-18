@@ -98,8 +98,18 @@ impl Item {
 }
 
 /// 공격 계열 / 유틸 계열에서 하나씩 뽑아 2개 제시(서로 다른 성격).
-const OFFENSE: [&str; 5] = ["explosion", "heavy", "pierce", "spikes", "lifesteal"];
-const UTILITY: [&str; 3] = ["iron", "shield", "slingshot"];
+const OFFENSE: [&str; 8] = [
+    "explosion",
+    "heavy",
+    "pierce",
+    "spikes",
+    "lifesteal",
+    "berserker",
+    "frost",
+    "chain",
+];
+const UTILITY: [&str; 5] = ["iron", "shield", "slingshot", "giant", "regen"];
+const CHAIN_R: f64 = 220.0; // 전격 연쇄 범위
 
 pub fn offer_powers() -> Vec<String> {
     let mut rng = rand::thread_rng();
@@ -301,6 +311,8 @@ pub struct Marble {
     pub buff_power: f64, // 다음 발사 세기 배수(기본 1.0)
     pub buff_lifesteal: bool,
     pub buff_explode: bool,
+    // 서리: 다음 발사가 느려짐(1회).
+    pub frozen: bool,
 }
 
 impl Marble {
@@ -341,6 +353,7 @@ pub struct FlickGame {
     shot_dmg_mult: f64,
     shot_lifesteal: bool,
     shot_explode: bool,
+    chain_fired: bool, // 전격 연쇄는 발사당 1회.
 }
 
 impl FlickGame {
@@ -373,6 +386,7 @@ impl FlickGame {
                 buff_power: 1.0,
                 buff_lifesteal: false,
                 buff_explode: false,
+                frozen: false,
             });
             draft.insert(
                 id,
@@ -395,6 +409,7 @@ impl FlickGame {
             shot_dmg_mult: 1.0,
             shot_lifesteal: false,
             shot_explode: false,
+            chain_fired: false,
         }
     }
 
@@ -561,6 +576,22 @@ impl FlickGame {
         let ids: Vec<Uuid> = self.marbles.iter().map(|m| m.owner).collect();
         let mut timeline: Vec<Vec<[i16; 2]>> = Vec::new();
         self.ev.clear();
+        self.chain_fired = false;
+        self.ev_frame = 0;
+
+        // 재생: 자기 차례 시작 시 체력 일부 회복.
+        if let Some(idx) = self.marbles.iter().position(|m| m.owner == shooter) {
+            if self.marbles[idx].power == "regen" && self.marbles[idx].alive {
+                let before = self.marbles[idx].hp;
+                self.apply_hp(idx, 12);
+                let gained = self.marbles[idx].hp - before;
+                if gained > 0 {
+                    let m = &self.marbles[idx];
+                    let (x, y, o, h) = (m.x, m.y, m.owner, m.hp);
+                    self.push_event(x, y, "heal", gained, o, h);
+                }
+            }
+        }
 
         // 발사 속도 설정. 슬링샷(무제한)은 세기 상한이 더 높다(드래그한 만큼).
         let slingshot = self
@@ -584,6 +615,11 @@ impl FlickGame {
             m.buff_lifesteal = false;
             m.buff_explode = false;
             m.buff_power = 1.0;
+            // 서리에 맞았으면 이번 발사는 느려진다(1회 소모).
+            if m.frozen {
+                power_mult *= 0.5;
+                m.frozen = false;
+            }
         }
         self.shot_dmg_mult = dm;
         self.shot_lifesteal = ls;
@@ -837,6 +873,39 @@ impl FlickGame {
                 }
             }
         }
+
+        // 전격: 발사자가 전격 능력이면 첫 충돌 시 맞은 알 주변으로 연쇄 피해.
+        if !self.chain_fired {
+            if let Some(c) = sh_idx {
+                if self.marbles[c].power == "chain" {
+                    let victim = if c == i { j } else { i };
+                    self.chain_fired = true;
+                    self.chain_zap(victim, c);
+                }
+            }
+        }
+    }
+
+    /// 전격 연쇄: victim 주변 다른 알(공격자 제외)에게 약한 피해.
+    fn chain_zap(&mut self, victim: usize, attacker: usize) {
+        let (vx, vy) = (self.marbles[victim].x, self.marbles[victim].y);
+        let atk = self.marbles[attacker].atk as f64;
+        for k in 0..self.marbles.len() {
+            if k == victim || k == attacker || !self.marbles[k].alive {
+                continue;
+            }
+            let dx = self.marbles[k].x - vx;
+            let dy = self.marbles[k].y - vy;
+            if (dx * dx + dy * dy).sqrt() > CHAIN_R {
+                continue;
+            }
+            let def = self.marbles[k].def as f64;
+            let zap = ((atk * 0.9 * 100.0 / (100.0 + def * 6.0)).round() as i32).max(2);
+            self.apply_hp(k, -zap);
+            let m = &self.marbles[k];
+            let (kx, ky, dead, o, h) = (m.x, m.y, !m.alive, m.owner, m.hp);
+            self.push_event(kx, ky, if dead { "ko" } else { "chain" }, zap, o, h);
+        }
     }
 
     /// attacker(a)가 victim(v)에게 충돌속도 impact로 입히는 피해.
@@ -848,7 +917,13 @@ impl FlickGame {
         // 방어력은 비율 감소(체감) — 절대 0이 되지 않게.
         let raw = impact * DMG_K * atk;
         // 발사자의 아이템 버프(데미지 +20% / 2배)를 곱한다.
-        let mult = if is_shooter { self.shot_dmg_mult } else { 1.0 };
+        let mut mult = if is_shooter { self.shot_dmg_mult } else { 1.0 };
+        // 광전사: 잃은 체력 비율만큼 피해 증가(최대 +100%).
+        if self.marbles[a].power == "berserker" {
+            let am = &self.marbles[a];
+            let missing = 1.0 - (am.hp as f64 / am.max_hp.max(1) as f64);
+            mult *= 1.0 + missing.clamp(0.0, 1.0);
+        }
         let mut dmg = (raw * 100.0 / (100.0 + def * 6.0) * mult).round() as i32;
         if dmg < 1 && raw >= 2.0 {
             dmg = 1; // 의미있는 충돌은 최소 1 피해
@@ -882,6 +957,11 @@ impl FlickGame {
         let mb = &self.marbles[v];
         let (vx, vy, dead, owner, hp) = (mb.x, mb.y, !mb.alive, mb.owner, mb.hp);
         self.push_event(vx, vy, if dead { "ko" } else { "hit" }, dmg, owner, hp);
+        // 서리: 맞춘 상대의 다음 발사를 느리게.
+        if self.marbles[a].power == "frost" && !dead {
+            self.marbles[v].frozen = true;
+            self.push_event(vx, vy, "frost", 0, owner, hp);
+        }
         // 흡혈: 공격자가 입힌 피해의 일부 회복 (능력 또는 아이템 버프)
         if self.marbles[a].power == "lifesteal" || (is_shooter && self.shot_lifesteal) {
             let heal = dmg / 2;
@@ -1005,6 +1085,41 @@ fn apply_power_stats(m: &mut Marble) {
         "spikes" => {
             m.atk = 11;
             m.def = 8;
+            m.max_hp = 110;
+            m.hp = 110;
+        }
+        // 거인: 거대한 몸집·높은 체력/질량(잘 안 밀림), 공격력은 보통.
+        "giant" => {
+            m.atk = 9;
+            m.def = 8;
+            m.mass = 2.8;
+            m.r = MARBLE_R * 1.6;
+            m.max_hp = 150;
+            m.hp = 150;
+        }
+        // 광전사: 체력이 낮을수록 공격력이 강해짐(피격 시 damage()에서 보정).
+        "berserker" => {
+            m.atk = 13;
+            m.def = 4;
+            m.max_hp = 95;
+            m.hp = 95;
+        }
+        // 서리: 맞춘 상대의 다음 발사를 느리게 만듦.
+        "frost" => {
+            m.atk = 11;
+            m.def = 5;
+        }
+        // 전격: 충돌 시 주변 알에게 연쇄 피해.
+        "chain" => {
+            m.atk = 11;
+            m.def = 4;
+            m.max_hp = 95;
+            m.hp = 95;
+        }
+        // 재생: 매 자기 차례마다 체력 일부 회복.
+        "regen" => {
+            m.atk = 9;
+            m.def = 6;
             m.max_hp = 110;
             m.hp = 110;
         }
