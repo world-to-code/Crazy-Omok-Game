@@ -76,6 +76,8 @@ pub enum ClientMsg {
     },
     /// 채팅.
     Chat { text: String },
+    /// 게임 종료 후 방을 다시 대기(로비) 상태로 되돌림.
+    ReturnToLobby,
     /// 방 나가기.
     LeaveRoom,
     /// (방장) 특정 인원 강퇴.
@@ -214,8 +216,10 @@ pub struct FlickEvent {
     pub frame: u32,
     pub x: f32,
     pub y: f32,
-    pub kind: String, // "hit" | "ko" | "explode" | "spike" | "shield"
-    pub amount: i32,  // 피해량(0이면 표시 안 함)
+    pub kind: String,  // "hit" | "ko" | "explode" | "spike" | "shield"
+    pub amount: i32,   // 피해량(0이면 표시 안 함)
+    pub owner: Uuid,   // 피해 입은 알(없으면 nil)
+    pub hp: i32,       // 그 알의 남은 체력(없으면 -1) — 재생 중 즉시 반영용
 }
 
 #[derive(Debug, Clone, Serialize)]

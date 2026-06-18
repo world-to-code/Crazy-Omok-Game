@@ -17,7 +17,7 @@ const RESTITUTION: f64 = 0.92;
 const MAX_STEPS: usize = 900;
 const KEYFRAME_EVERY: usize = 6; // 약 20fps로 기록
 const STOP_SPEED: f64 = 8.0;
-const DMG_K: f64 = 0.0012; // 충돌속도→데미지 계수 (세기 비율이 잘 드러나도록)
+const DMG_K: f64 = 0.0019; // 충돌속도→데미지 계수 (게임이 늘어지지 않게 상향)
 const DMG_CAP: i32 = 40; // 보통 능력의 한 번 충돌 최대 피해
 const POWER_CAP: f64 = 1.0; // 보통 능력의 발사 세기 상한
 const POWER_CAP_UNLIMITED: f64 = 2.6; // '무제한' 능력(슬링샷)의 상한
@@ -310,13 +310,15 @@ impl FlickGame {
         }
     }
 
-    fn push_event(&mut self, x: f64, y: f64, kind: &str, amount: i32) {
+    fn push_event(&mut self, x: f64, y: f64, kind: &str, amount: i32, owner: Uuid, hp: i32) {
         self.ev.push(crate::protocol::FlickEvent {
             frame: self.ev_frame,
             x: x as f32,
             y: y as f32,
             kind: kind.to_string(),
             amount,
+            owner,
+            hp,
         });
     }
 
@@ -514,9 +516,10 @@ impl FlickGame {
                             ObKind::Spike => {
                                 let dmg = ((impact * 0.004) as i32 + 5).max(5);
                                 self.apply_hp(i, -dmg);
-                                let (mx, my, dead) =
-                                    (self.marbles[i].x, self.marbles[i].y, !self.marbles[i].alive);
-                                self.push_event(mx, my, if dead { "ko" } else { "spike" }, dmg);
+                                let mb = &self.marbles[i];
+                                let (mx, my, dead, owner, hp) =
+                                    (mb.x, mb.y, !mb.alive, mb.owner, mb.hp);
+                                self.push_event(mx, my, if dead { "ko" } else { "spike" }, dmg, owner, hp);
                             }
                             ObKind::Bomb => self.explode_at(ob.x, ob.y, 240.0, 1100.0, 14),
                             _ => {}
@@ -646,8 +649,8 @@ impl FlickGame {
         let def = self.marbles[v].def as f64;
         // 방어력은 비율 감소(체감) — 절대 0이 되지 않게.
         let raw = impact * DMG_K * atk;
-        let mut dmg = (raw * 100.0 / (100.0 + def * 8.0)).round() as i32;
-        if dmg < 1 && raw >= 4.0 {
+        let mut dmg = (raw * 100.0 / (100.0 + def * 6.0)).round() as i32;
+        if dmg < 1 && raw >= 2.0 {
             dmg = 1; // 의미있는 충돌은 최소 1 피해
         }
         // 슬링샷(무제한) 발사자의 타격은 피해 상한 없음 — 세게 칠수록 강함.
@@ -661,8 +664,9 @@ impl FlickGame {
         // 보호막: 첫 피해 무효(소모)
         if self.marbles[v].shield {
             self.marbles[v].shield = false;
-            let (vx, vy) = (self.marbles[v].x, self.marbles[v].y);
-            self.push_event(vx, vy, "shield", 0);
+            let mb = &self.marbles[v];
+            let (vx, vy, owner, hp) = (mb.x, mb.y, mb.owner, mb.hp);
+            self.push_event(vx, vy, "shield", 0, owner, hp);
             return;
         }
         // 가시: 피해를 입힌 공격자에게 반동 피해 (단, 발사자는 무피해)
@@ -671,8 +675,9 @@ impl FlickGame {
             self.apply_hp(a, -recoil);
         }
         self.apply_hp(v, -dmg);
-        let (vx, vy, dead) = (self.marbles[v].x, self.marbles[v].y, !self.marbles[v].alive);
-        self.push_event(vx, vy, if dead { "ko" } else { "hit" }, dmg);
+        let mb = &self.marbles[v];
+        let (vx, vy, dead, owner, hp) = (mb.x, mb.y, !mb.alive, mb.owner, mb.hp);
+        self.push_event(vx, vy, if dead { "ko" } else { "hit" }, dmg, owner, hp);
         // 흡혈: 공격자가 입힌 피해의 일부 회복
         if self.marbles[a].power == "lifesteal" {
             self.apply_hp(a, dmg / 2);
@@ -682,7 +687,7 @@ impl FlickGame {
 
     fn explode(&mut self, center: usize) {
         let (cx, cy) = (self.marbles[center].x, self.marbles[center].y);
-        self.push_event(cx, cy, "explode", 0);
+        self.push_event(cx, cy, "explode", 0, Uuid::nil(), -1);
         for k in 0..self.marbles.len() {
             if k == center || !self.marbles[k].alive {
                 continue;
@@ -697,14 +702,15 @@ impl FlickGame {
             self.marbles[k].vx += dx / d * f;
             self.marbles[k].vy += dy / d * f;
             self.apply_hp(k, -8);
-            let (kx, ky, dead) = (self.marbles[k].x, self.marbles[k].y, !self.marbles[k].alive);
-            self.push_event(kx, ky, if dead { "ko" } else { "hit" }, 8);
+            let mb = &self.marbles[k];
+            let (kx, ky, dead, owner, hp) = (mb.x, mb.y, !mb.alive, mb.owner, mb.hp);
+            self.push_event(kx, ky, if dead { "ko" } else { "hit" }, 8, owner, hp);
         }
     }
 
     /// 임의 지점 폭발 (폭탄 장애물용). 환경 피해라 모든 알에 적용.
     fn explode_at(&mut self, cx: f64, cy: f64, radius: f64, force: f64, dmg: i32) {
-        self.push_event(cx, cy, "explode", 0);
+        self.push_event(cx, cy, "explode", 0, Uuid::nil(), -1);
         for k in 0..self.marbles.len() {
             if !self.marbles[k].alive {
                 continue;
@@ -719,8 +725,9 @@ impl FlickGame {
             self.marbles[k].vx += dx / d * f;
             self.marbles[k].vy += dy / d * f;
             self.apply_hp(k, -dmg);
-            let (kx, ky, dead) = (self.marbles[k].x, self.marbles[k].y, !self.marbles[k].alive);
-            self.push_event(kx, ky, if dead { "ko" } else { "hit" }, dmg);
+            let mb = &self.marbles[k];
+            let (kx, ky, dead, owner, hp) = (mb.x, mb.y, !mb.alive, mb.owner, mb.hp);
+            self.push_event(kx, ky, if dead { "ko" } else { "hit" }, dmg, owner, hp);
         }
     }
 
@@ -738,21 +745,21 @@ impl FlickGame {
 /// 능력별 스탯 차등 (기본 hp100/atk10/def5/mass1 위에 덮어쓰기).
 fn apply_power_stats(m: &mut Marble) {
     match m.power.as_str() {
-        // 광역 폭발: 단일 공격력은 낮지만 주변 동시 타격.
+        // 광역 폭발: 단일 공격력은 보통이지만 주변 동시 타격.
         "explosion" => {
-            m.atk = 8;
+            m.atk = 13;
             m.def = 4;
         }
         // 관통: 높은 공격력·다중 타격, 대신 약체.
         "pierce" => {
-            m.atk = 13;
+            m.atk = 17;
             m.def = 4;
             m.max_hp = 90;
             m.hp = 90;
         }
         // 강철: 탱커. 공격력 낮고 방어·체력·질량 높음.
         "iron" => {
-            m.atk = 6;
+            m.atk = 10;
             m.def = 14;
             m.mass = 2.2;
             m.max_hp = 130;
@@ -760,20 +767,20 @@ fn apply_power_stats(m: &mut Marble) {
         }
         // 보호막: 평균 + 첫 피해 무효.
         "shield" => {
-            m.atk = 9;
+            m.atk = 13;
             m.def = 6;
             m.shield = true;
         }
-        // 슬링샷: 발사 속도가 빨라(×1.4) 충격 데미지가 큼.
+        // 슬링샷: 발사 세기 무제한(드래그한 만큼).
         "slingshot" => {
-            m.atk = 9;
+            m.atk = 13;
             m.def = 5;
             m.max_hp = 95;
             m.hp = 95;
         }
         // 헤비샷: 최고 공격력 + 무거움.
         "heavy" => {
-            m.atk = 20;
+            m.atk = 24;
             m.def = 6;
             m.mass = 1.7;
             m.max_hp = 115;
@@ -781,12 +788,12 @@ fn apply_power_stats(m: &mut Marble) {
         }
         // 흡혈: 준수한 공격력 + 입힌 피해 절반 회복.
         "lifesteal" => {
-            m.atk = 12;
+            m.atk = 16;
             m.def = 5;
         }
-        // 가시: 공격력 낮지만 반사 + 맷집.
+        // 가시: 공격력 보통 + 반사 + 맷집.
         "spikes" => {
-            m.atk = 7;
+            m.atk = 11;
             m.def = 8;
             m.max_hp = 110;
             m.hp = 110;

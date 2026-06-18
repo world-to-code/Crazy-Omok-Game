@@ -6,7 +6,7 @@ import PlayerList from "../components/PlayerList";
 import Chat from "../components/Chat";
 
 export default function Game() {
-  const { state, leave, setScreen } = useGame();
+  const { state, leave, returnToLobby } = useGame();
   const { players, currentTurn, currentTeam, myId, status, winner, winningTeam, settings, mode } = state;
   const isTeam = mode === "team";
 
@@ -78,7 +78,7 @@ export default function Game() {
             ) : (
               <p>승자 없이 종료되었습니다.</p>
             )}
-            <button className="primary big" onClick={() => setScreen("lobby")}>
+            <button className="primary big" onClick={returnToLobby}>
               로비로 이동
             </button>
           </div>

@@ -60,6 +60,8 @@ export interface FlickEvent {
   y: number;
   kind: string; // "hit" | "ko" | "explode" | "spike" | "shield"
   amount: number; // 피해량(0이면 표시 안 함)
+  owner: string; // 피해 입은 알(없으면 nil-uuid)
+  hp: number; // 그 알의 남은 체력(없으면 -1)
 }
 
 export interface FlickObstacle {
@@ -218,6 +220,7 @@ export type ClientMsg =
   | { type: "JoinTeam"; team: number | null }
   | { type: "AssignTeam"; player_id: string; team: number | null }
   | { type: "Chat"; text: string }
+  | { type: "ReturnToLobby" }
   | { type: "LeaveRoom" }
   | { type: "KickPlayer"; player_id: string }
   | { type: "FlickDraftPick"; power: string }

@@ -109,10 +109,10 @@ const key = (x: number, y: number) => `${x},${y}`;
 // - 이미 방 안(로비/게임): 진행 중이면 게임, 그 외엔 현재 화면 유지(종료 후 로비에서 튕김 방지).
 // - 처음 입장/재접속: 진행 중이면 게임, 그 외(대기/종료)는 로비로(새로 들어온 사람은 대기실).
 function screenFor(status: string, current: Screen): Screen {
-  if (current === "lobby" || current === "game") {
-    return status === "playing" ? "game" : current;
-  }
-  return status === "playing" ? "game" : "lobby";
+  if (status === "playing") return "game";
+  if (status === "lobby") return "lobby"; // 로비 상태면 항상 로비(종료 후 되돌리기 포함)
+  // 종료: 이미 방 안이면 종료 화면 유지, 새로 들어온 사람은 로비(대기실)
+  return current === "lobby" || current === "game" ? current : "lobby";
 }
 
 type Action =
@@ -312,6 +312,9 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
         winner: m.winner,
         othersAim: null,
+        // 스냅샷이 최신 상태이므로 재생 대기 상태는 폐기(재접속/지연 시 되돌림 방지)
+        flickResolve: null,
+        flickPending: null,
         screen,
         code: m.settings.code,
       };
@@ -392,6 +395,7 @@ interface Ctx {
   setScreen: (s: Screen) => void;
   selectGame: (g: "omok" | "flick") => void;
   applyFlick: () => void;
+  returnToLobby: () => void;
   clearError: () => void;
   leave: () => void;
 }
@@ -515,6 +519,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setScreen: (screen) => dispatch({ kind: "screen", screen }),
     selectGame: (game) => dispatch({ kind: "selectGame", game }),
     applyFlick: () => dispatch({ kind: "flickApply" }),
+    returnToLobby: () => send({ type: "ReturnToLobby" }),
     clearError: () => dispatch({ kind: "clearError" }),
     leave,
   };

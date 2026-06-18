@@ -8,7 +8,7 @@ import { ensureFlickWasm, predictPath } from "../net/flickWasm";
 const VIEW_SPAN = 1050; // 화면에 보이는 월드 폭(맵이 넓어 카메라가 따라감)
 
 export default function FlickGame() {
-  const { state, send, leave, setScreen } = useGame();
+  const { state, send, leave, returnToLobby } = useGame();
   const { currentTurn, myId, status, winner, players, drafting, draftOptions } = state;
 
   const myTurn = status === "playing" && !drafting && currentTurn === myId;
@@ -67,7 +67,7 @@ export default function FlickGame() {
           <div className="overlay-card card">
             <h2>🏆 게임 종료</h2>
             {winName ? <p><b>{winName}</b> 님 승리!</p> : <p>무승부</p>}
-            <button className="primary big" onClick={() => setScreen("lobby")}>로비로</button>
+            <button className="primary big" onClick={returnToLobby}>로비로</button>
           </div>
         </div>
       )}
@@ -140,6 +140,8 @@ function Arena() {
   const shakeRef = useRef<{ until: number; mag: number }>({ until: 0, mag: 0 });
   const particlesRef = useRef<{ x: number; y: number; kind: string; t0: number }[]>([]);
   const dmgTextsRef = useRef<{ x: number; y: number; amount: number; ko: boolean; t0: number }[]>([]);
+  // 재생 중 즉시 반영할 체력(이벤트 시점마다 갱신). 재생 끝나면 비움.
+  const displayHpRef = useRef<Record<string, number>>({});
   const trailsRef = useRef<Record<string, [number, number][]>>({});
   const lastAimSentRef = useRef(0);
 
@@ -177,11 +179,21 @@ function Arena() {
     const start = performance.now();
     let evIdx = 0;
     let raf = 0;
+    displayHpRef.current = {}; // 이번 발사 재생용 체력 누적 초기화
 
-    const fireEvent = (kind: string, x: number, y: number, amount: number) => {
+    const NIL = "00000000-0000-0000-0000-000000000000";
+    const fireEvent = (
+      kind: string,
+      x: number,
+      y: number,
+      amount: number,
+      owner: string,
+      hp: number,
+    ) => {
       const now = performance.now();
       particlesRef.current.push({ x, y, kind, t0: now });
       if (amount > 0) dmgTextsRef.current.push({ x, y, amount, ko: kind === "ko", t0: now });
+      if (owner && owner !== NIL && hp >= 0) displayHpRef.current[owner] = hp; // 즉시 체력 반영
       const strong = kind === "explode" || kind === "ko";
       shakeRef.current = {
         until: now + (strong ? 460 : 260),
@@ -193,13 +205,13 @@ function Arena() {
       const frame = Math.floor((performance.now() - start) / FRAME_MS);
       while (evIdx < events.length && events[evIdx].frame <= frame) {
         const e = events[evIdx++];
-        fireEvent(e.kind, e.x, e.y, e.amount);
+        fireEvent(e.kind, e.x, e.y, e.amount, e.owner, e.hp);
       }
       if (frame >= timeline.length) {
         // 남은 이벤트 마저 발생
         while (evIdx < events.length) {
           const e = events[evIdx++];
-          fireEvent(e.kind, e.x, e.y, e.amount);
+          fireEvent(e.kind, e.x, e.y, e.amount, e.owner, e.hp);
         }
         animRef.current = null;
         applyFlick(); // 돌이 멈춘 뒤 차례 전환
@@ -387,10 +399,11 @@ function Arena() {
           ctx.stroke();
           ctx.globalAlpha = 1;
         }
-        // 체력바 + 현재/최대 텍스트
+        // 체력바 + 현재/최대 텍스트 (재생 중엔 이벤트 시점 체력으로 즉시 반영)
         if (m.alive) {
+          const hp = anim ? (displayHpRef.current[m.owner] ?? m.hp) : m.hp;
           const bw = Math.max(34, r * 2.4);
-          const ratio = Math.max(0, m.hp / m.max_hp);
+          const ratio = Math.max(0, hp / m.max_hp);
           ctx.fillStyle = "rgba(0,0,0,0.55)";
           ctx.fillRect(sx - bw / 2, sy - r - 12, bw, 5);
           ctx.fillStyle = ratio > 0.4 ? "#4ade80" : "#f87171";
@@ -399,7 +412,7 @@ function Arena() {
           ctx.font = "bold 11px sans-serif";
           ctx.textAlign = "center";
           ctx.textBaseline = "bottom";
-          ctx.fillText(`${m.hp}/${m.max_hp}`, sx, sy - r - 14);
+          ctx.fillText(`${hp}/${m.max_hp}`, sx, sy - r - 14);
         }
       }
 

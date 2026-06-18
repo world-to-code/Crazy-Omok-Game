@@ -629,6 +629,33 @@ fn handle_client_msg(
             });
         }
 
+        ClientMsg::ReturnToLobby => {
+            let Some((code, _pid)) = session.clone() else {
+                return;
+            };
+            let mut rooms = state.rooms();
+            let Some(room) = rooms.get_mut(&code) else {
+                return;
+            };
+            // 종료된 게임만 로비로 되돌린다(진행 중에는 무시).
+            if room.status != RoomStatus::Finished {
+                return;
+            }
+            room.status = RoomStatus::Lobby;
+            room.board.clear();
+            room.winner = None;
+            room.winner_team = None;
+            room.winning_line.clear();
+            room.votes.clear();
+            room.deadline_ms = None;
+            room.current_team = 0;
+            room.turn_idx = 0;
+            room.turn_generation += 1;
+            room.flick = None;
+            let snap = room.snapshot();
+            room.broadcast(&snap);
+        }
+
         ClientMsg::LeaveRoom => {
             if let Some((code, pid)) = session.take() {
                 handle_leave(state, &code, pid, LeaveKind::Full);
