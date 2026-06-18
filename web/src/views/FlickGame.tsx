@@ -486,12 +486,13 @@ function Arena() {
             ctx.stroke();
             ctx.setLineDash([]);
           }
+          // 슬링샷 당김 표시: 화살표는 당긴 방향(발사의 반대)을 가리킨다.
           drawAimArrow(
             ctx,
             toS,
             me.x,
             me.y,
-            aimRef.current.angle,
+            aimRef.current.angle + Math.PI,
             aimRef.current.power,
             arenaR,
             zoom,
@@ -500,12 +501,12 @@ function Arena() {
         }
       }
 
-      // 상대 조준 미리보기
+      // 상대 조준 미리보기 (당김 방향 표시)
       const oa = othersAimRef.current;
       if (oa && !anim) {
         const om = marbles.find((mm) => mm.owner === oa.owner && mm.alive);
         if (om) {
-          drawAimArrow(ctx, toS, om.x, om.y, oa.angle, oa.power, arenaR, zoom, "#fb7185");
+          drawAimArrow(ctx, toS, om.x, om.y, oa.angle + Math.PI, oa.power, arenaR, zoom, "#fb7185");
         }
       }
 
@@ -651,7 +652,8 @@ function Arena() {
     const [wx, wy] = pointerWorld(e);
     const dx = wx - me.x;
     const dy = wy - me.y;
-    const angle = Math.atan2(dy, dx);
+    // 슬링샷 방식: 당긴 반대 방향으로 발사 → 발사 각도는 드래그의 반대.
+    const angle = Math.atan2(-dy, -dx);
     // 슬링샷(무제한)은 세기 상한이 더 높다.
     const cap = me.power === "slingshot" ? 2.6 : 1;
     const power = Math.min(cap, Math.hypot(dx, dy) / (arenaRRef.current * 0.9));
@@ -703,7 +705,7 @@ function Arena() {
         onPointerUp={up}
         style={{ cursor: myTurn ? "crosshair" : "default", touchAction: "none" }}
       />
-      {myTurn && <div className="aim-hint">내 알에서 원하는 방향으로 드래그 → 놓으면 발사 (점선=예상 경로, 멀수록 강함)</div>}
+      {myTurn && <div className="aim-hint">새총처럼 반대로 당겼다 놓으면 발사 (점선=예상 경로, 많이 당길수록 강함)</div>}
     </div>
   );
 }
