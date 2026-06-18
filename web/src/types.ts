@@ -125,16 +125,16 @@ export interface FlickMarble {
   color_index: number;
 }
 
-// 초능력 8종 표시 정보
-export const POWER_INFO: Record<string, { name: string; emoji: string; desc: string }> = {
-  explosion: { name: "폭발", emoji: "💥", desc: "충돌 시 주변에 광역 넉백 + 피해" },
-  pierce: { name: "관통", emoji: "🏹", desc: "충돌해도 멈추지 않고 뚫고 지나감" },
-  iron: { name: "강철", emoji: "🛡️", desc: "방어력↑·무거움(잘 안 밀림)·체력↑" },
-  shield: { name: "보호막", emoji: "🔰", desc: "첫 피해 1회 무효" },
-  slingshot: { name: "슬링샷", emoji: "🎯", desc: "발사 세기 제한 없음 — 드래그한 만큼 강하게(작게 치면 약함)" },
-  heavy: { name: "헤비샷", emoji: "🔨", desc: "공격력↑·무거움" },
-  lifesteal: { name: "흡혈", emoji: "🧛", desc: "입힌 피해의 절반만큼 체력 회복" },
-  spikes: { name: "가시", emoji: "🌵", desc: "맞을 때 공격자에게 반동 피해" },
+// 초능력 8종 표시 정보 (color = 알 테두리 강조색)
+export const POWER_INFO: Record<string, { name: string; emoji: string; desc: string; color: string }> = {
+  explosion: { name: "폭발", emoji: "💥", desc: "충돌 시 주변에 광역 넉백 + 피해", color: "#fb923c" },
+  pierce: { name: "관통", emoji: "🏹", desc: "충돌해도 멈추지 않고 뚫고 지나감", color: "#38bdf8" },
+  iron: { name: "강철", emoji: "🛡️", desc: "방어력↑·무거움(잘 안 밀림)·체력↑", color: "#94a3b8" },
+  shield: { name: "보호막", emoji: "🔰", desc: "첫 피해 1회 무효", color: "#7dd3fc" },
+  slingshot: { name: "슬링샷", emoji: "🎯", desc: "발사 세기 제한 없음 — 드래그한 만큼 강하게(작게 치면 약함)", color: "#f0b96b" },
+  heavy: { name: "헤비샷", emoji: "🔨", desc: "공격력↑·무거움", color: "#b45309" },
+  lifesteal: { name: "흡혈", emoji: "🧛", desc: "입힌 피해의 절반만큼 체력 회복", color: "#c084fc" },
+  spikes: { name: "가시", emoji: "🌵", desc: "맞을 때 공격자에게 반동 피해", color: "#f87171" },
 };
 
 export interface Stone {
@@ -294,6 +294,7 @@ export type ClientMsg =
   | { type: "JoinTeam"; team: number | null }
   | { type: "AssignTeam"; player_id: string; team: number | null }
   | { type: "Chat"; text: string }
+  | { type: "SetColor"; index: number }
   | { type: "ReturnToLobby" }
   | { type: "LeaveRoom" }
   | { type: "KickPlayer"; player_id: string }

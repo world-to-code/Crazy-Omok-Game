@@ -24,6 +24,8 @@ static NEXT_CONN: AtomicU64 = AtomicU64::new(1);
 /// 입력 글자 수 제한.
 const MAX_NICKNAME: usize = 12;
 const MAX_ROOM_NAME: usize = 20;
+/// 선택 가능한 색 팔레트 크기 (클라 playerColor 인덱스와 일치).
+const COLOR_PALETTE: u8 = 24;
 const MAX_CHAT: usize = 50;
 /// 채팅 속도 제한 (ms).
 const CHAT_COOLDOWN_MS: u64 = 500;
@@ -734,6 +736,37 @@ fn handle_client_msg(
             room.turn_idx = 0;
             room.turn_generation += 1;
             room.flick = None;
+            let snap = room.snapshot();
+            room.broadcast(&snap);
+        }
+
+        ClientMsg::SetColor { index } => {
+            let Some((code, pid)) = session.clone() else {
+                return;
+            };
+            let mut rooms = state.rooms();
+            let Some(room) = rooms.get_mut(&code) else {
+                return;
+            };
+            if room.status == RoomStatus::Playing {
+                err(tx, "게임 중에는 색을 바꿀 수 없습니다");
+                return;
+            }
+            if index >= COLOR_PALETTE {
+                return;
+            }
+            // 다른(접속 중) 플레이어가 쓰는 색이면 거부.
+            if room
+                .players
+                .iter()
+                .any(|p| p.id != pid && p.connected() && p.color_index == index)
+            {
+                err(tx, "이미 사용 중인 색입니다");
+                return;
+            }
+            if let Some(p) = room.find_mut(pid) {
+                p.color_index = index;
+            }
             let snap = room.snapshot();
             room.broadcast(&snap);
         }

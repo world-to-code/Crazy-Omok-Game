@@ -1037,3 +1037,16 @@ input[type="range"] {
 .scl::-webkit-scrollbar { width: 8px; height: 8px; }
 .scl::-webkit-scrollbar-thumb { background: #3a2f29; border-radius: 8px; }
 .scl::-webkit-scrollbar-track { background: transparent; }
+
+/* 색 선택 팔레트 */
+.color-picker { margin: 14px 0; }
+.cp-label { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+.cp-swatches { display: flex; flex-wrap: wrap; gap: 7px; }
+.cp-sw {
+  width: 28px; height: 28px; border-radius: 8px; border: 2px solid #2c3160;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  color: #0008; font-weight: 900; font-size: 14px; padding: 0; transition: transform .1s;
+}
+.cp-sw:hover:not(:disabled) { transform: scale(1.12); }
+.cp-sw.mine { border-color: #fff; box-shadow: 0 0 0 2px var(--primary); }
+.cp-sw:disabled { opacity: 0.28; cursor: not-allowed; }

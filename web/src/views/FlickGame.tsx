@@ -422,18 +422,45 @@ function Arena() {
           ctx.fillStyle = col;
           ctx.fill();
         }
-        // 광택(작은 하이라이트)
-        if (m.alive) {
+        // 능력별 외형: 능력 강조색 테두리 + 능력 심볼
+        const pinfo = m.alive ? POWER_INFO[m.power] : undefined;
+        // 베이스 테두리(대비)
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(0,0,0,0.55)";
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.stroke();
+        if (pinfo) {
+          // 능력 강조 링
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = pinfo.color;
+          ctx.beginPath();
+          ctx.arc(sx, sy, r - 1.5, 0, Math.PI * 2);
+          ctx.stroke();
+          // 가시 능력은 뾰족한 외곽
+          if (m.power === "spikes") {
+            ctx.strokeStyle = pinfo.color;
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 10; i++) {
+              const a = (i / 10) * Math.PI * 2;
+              ctx.beginPath();
+              ctx.moveTo(sx + Math.cos(a) * r, sy + Math.sin(a) * r);
+              ctx.lineTo(sx + Math.cos(a) * (r + 5), sy + Math.sin(a) * (r + 5));
+              ctx.stroke();
+            }
+          }
+          // 능력 심볼
+          ctx.font = `${Math.max(11, r * 1.25).toFixed(0)}px sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(pinfo.emoji, sx, sy + r * 0.06);
+        } else if (m.alive) {
+          // 능력 미선택(드래프트 전): 광택만
           ctx.beginPath();
           ctx.arc(sx - r * 0.3, sy - r * 0.3, r * 0.35, 0, Math.PI * 2);
           ctx.fillStyle = "rgba(255,255,255,0.35)";
           ctx.fill();
         }
-        ctx.lineWidth = m.color_index === 0 ? 2 : 1.5;
-        ctx.strokeStyle = "rgba(0,0,0,0.6)";
-        ctx.beginPath();
-        ctx.arc(sx, sy, r, 0, Math.PI * 2);
-        ctx.stroke();
         if (m.shield) {
           ctx.beginPath();
           ctx.arc(sx, sy, r + 4, 0, Math.PI * 2);

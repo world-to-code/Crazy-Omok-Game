@@ -97,6 +97,8 @@ export default function Lobby() {
 
         {isHost && editing && <SettingsEditor onSaved={() => setEditing(false)} />}
 
+        {!isTeam && <ColorPicker />}
+
         {status === "finished" && <div className="banner">이전 게임이 종료되었습니다. 다시 시작할 수 있어요.</div>}
 
         {isTeam && <TeamAssign />}
@@ -178,6 +180,39 @@ export default function Lobby() {
       <div className="lobby-side">
         <PlayerList />
         <Chat />
+      </div>
+    </div>
+  );
+}
+
+// 내 알/돌 색 선택 팔레트 (팀전 외 게임).
+function ColorPicker() {
+  const { state, send } = useGame();
+  const me = state.players.find((p) => p.id === state.myId);
+  const taken = new Set(
+    state.players.filter((p) => p.id !== state.myId && p.connected).map((p) => p.color_index),
+  );
+  const PALETTE = 24;
+  return (
+    <div className="color-picker">
+      <div className="cp-label">🎨 내 색 고르기</div>
+      <div className="cp-swatches">
+        {Array.from({ length: PALETTE }, (_, i) => {
+          const mine = me?.color_index === i;
+          const used = taken.has(i);
+          return (
+            <button
+              key={i}
+              className={`cp-sw${mine ? " mine" : ""}`}
+              style={{ background: playerColor(i) }}
+              disabled={used && !mine}
+              title={used && !mine ? "사용 중인 색" : ""}
+              onClick={() => !used && send({ type: "SetColor", index: i })}
+            >
+              {mine ? "✓" : ""}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
