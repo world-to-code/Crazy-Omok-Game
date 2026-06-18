@@ -13,8 +13,8 @@ export default function Home() {
 
   return (
     <div className="home card">
-      <h1>🎮 보드게임 파티</h1>
-      <p className="subtitle">같은 WiFi/링크로 친구들과 함께 — 게임을 고르세요</p>
+      <h1>🎮 미니게임 천국</h1>
+      <p className="subtitle">친구들과 함께 — 오목 · 알까기 · 집단지성 체스</p>
 
       <div className="game-pick">
         <button
