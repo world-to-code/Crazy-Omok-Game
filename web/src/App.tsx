@@ -7,6 +7,7 @@ import FindRooms from "./views/FindRooms";
 import Lobby from "./views/Lobby";
 import Game from "./views/Game";
 import FlickGame from "./views/FlickGame";
+import ChessGame from "./views/ChessGame";
 import JoinLink from "./views/JoinLink";
 
 export default function App() {
@@ -45,7 +46,7 @@ function render(screen: string, game: string) {
     case "lobby":
       return <Lobby />;
     case "game":
-      return game === "flick" ? <FlickGame /> : <Game />;
+      return game === "flick" ? <FlickGame /> : game === "chess" ? <ChessGame /> : <Game />;
     default:
       return <Home />;
   }

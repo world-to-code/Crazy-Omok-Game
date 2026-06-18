@@ -14,6 +14,7 @@ function recommended(maxPlayers: number): number[] {
 export default function CreateRoom() {
   const { state, send, setScreen } = useGame();
   const isFlick = state.selectedGame === "flick";
+  const isChess = state.selectedGame === "chess";
   const [mode, setMode] = useState<"classic" | "team">("classic");
   const [name, setName] = useState("");
   const [nickname, setNickname] = useState("");
@@ -35,7 +36,7 @@ export default function CreateRoom() {
     e.preventDefault();
     send({
       type: "CreateRoom",
-      name: name.trim() || (isFlick ? "알까기방" : "오목방"),
+      name: name.trim() || (isChess ? "집단지성 체스" : isFlick ? "알까기방" : "오목방"),
       nickname: nickname.trim() || "방장",
       max_players: maxPlayers,
       board_size: boardSize,
@@ -45,6 +46,40 @@ export default function CreateRoom() {
       mode,
       game: state.selectedGame,
     });
+  }
+
+  // ===== 집단지성 체스 방 만들기 =====
+  if (isChess) {
+    return (
+      <div className="card form-card">
+        <button className="back" onClick={() => setScreen("home")}>← 뒤로</button>
+        <h2>♛ 집단지성 체스 방 만들기</h2>
+        <form onSubmit={submit} className="form">
+          <label>
+            내 닉네임
+            <input value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} placeholder="방장" />
+          </label>
+          <label>
+            방 이름
+            <input value={name} maxLength={20} onChange={(e) => setName(e.target.value)} placeholder="집단지성 한 판" />
+          </label>
+          <div className="team-note">
+            두 팀(백·흑)으로 나뉘어, 매 턴 <b>① 움직일 기물 → ② 이동 위치</b>를 팀 투표로 결정합니다.
+            팀 배정은 로비에서 합니다.
+          </div>
+          <label>
+            단계별 투표 시간: <b>{turnLimit}초</b>
+            <input type="range" min={5} max={60} step={5} value={turnLimit} onChange={(e) => setTurnLimit(+e.target.value)} />
+            <small>기물 선택과 이동 선택 각 단계에 적용됩니다.</small>
+          </label>
+          <label>
+            비밀번호 (선택)
+            <input value={password} maxLength={30} onChange={(e) => setPassword(e.target.value)} placeholder="없으면 비워두세요" />
+          </label>
+          <button type="submit" className="primary big">방 만들기</button>
+        </form>
+      </div>
+    );
   }
 
   // ===== 알까기 방 만들기 =====

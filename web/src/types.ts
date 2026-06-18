@@ -143,6 +143,35 @@ export interface Stone {
   color: number;
 }
 
+// ===== 체스 =====
+export interface ChessPiece {
+  t: string; // p,n,b,r,q,k
+  c: string; // w,b
+}
+export interface ChessVoteCell {
+  r: number;
+  f: number;
+  count: number;
+}
+// 기물 유니코드 글리프 + 한글 이름
+export const CHESS_GLYPH: Record<string, string> = {
+  p: "♟",
+  n: "♞",
+  b: "♝",
+  r: "♜",
+  q: "♛",
+  k: "♚",
+};
+export const CHESS_NAME_KR: Record<string, string> = {
+  p: "폰",
+  n: "나이트",
+  b: "비숍",
+  r: "룩",
+  q: "퀸",
+  k: "킹",
+};
+export const CHESS_FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
+
 export interface ChatLine {
   from_id: string;
   from_name: string;
@@ -194,6 +223,27 @@ export type ServerMsg =
       server_now_ms: number;
       winner: string | null;
     }
+  | {
+      type: "ChessSnapshot";
+      settings: RoomSettings;
+      players: PlayerInfo[];
+      board: (ChessPiece | null)[][];
+      turn: string;
+      phase: string;
+      selected: [number, number] | null;
+      options: [number, number][];
+      last_move: [[number, number], [number, number]] | null;
+      history: string[];
+      check_status: string;
+      status: string;
+      current_team: number | null;
+      deadline_ms: number | null;
+      server_now_ms: number;
+      winner: string | null;
+      voters: number;
+      voted: number;
+    }
+  | { type: "ChessVoteUpdate"; tallies: ChessVoteCell[]; voters: number; voted: number }
   | { type: "FlickDraft"; options: string[] }
   | { type: "FlickAiming"; owner: string; angle: number; power: number }
   | {
@@ -240,6 +290,7 @@ export type ClientMsg =
   | { type: "StartGame"; random: boolean; order: string[]; first_team: number | null }
   | { type: "PlaceStone"; x: number; y: number }
   | { type: "Vote"; x: number; y: number }
+  | { type: "ChessVote"; r: number; f: number }
   | { type: "JoinTeam"; team: number | null }
   | { type: "AssignTeam"; player_id: string; team: number | null }
   | { type: "Chat"; text: string }

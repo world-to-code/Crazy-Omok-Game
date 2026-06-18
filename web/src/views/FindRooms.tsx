@@ -54,6 +54,7 @@ export default function FindRooms() {
           if (list.length === 0) return <div className="empty">열린 방이 없습니다.</div>;
           return list.map((r) => {
             const flick = r.game === "flick";
+            const chess = r.game === "chess";
             return (
               <div
                 key={r.code}
@@ -65,15 +66,17 @@ export default function FindRooms() {
               >
                 <span className="room-name">
                   {r.has_password ? "🔒 " : ""}
-                  {flick ? "🌀 " : r.mode === "team" ? "🤝 " : ""}
+                  {flick ? "🌀 " : chess ? "♛ " : r.mode === "team" ? "🤝 " : ""}
                   {r.name}
                 </span>
                 <span className="room-meta">
-                  {flick
-                    ? `알까기 · ${r.players}/${r.max_players}명`
-                    : r.mode === "team"
-                      ? `팀전 · ${r.players}명`
-                      : `${r.players}/${r.max_players}명 · ${r.board_size}×${r.board_size} · ${r.win_length}목`}{" "}
+                  {chess
+                    ? `집단지성 체스 · ${r.players}명`
+                    : flick
+                      ? `알까기 · ${r.players}/${r.max_players}명`
+                      : r.mode === "team"
+                        ? `팀전 · ${r.players}명`
+                        : `${r.players}/${r.max_players}명 · ${r.board_size}×${r.board_size} · ${r.win_length}목`}{" "}
                   · {r.status === "playing" ? "게임중" : "대기중"}
                 </span>
               </div>

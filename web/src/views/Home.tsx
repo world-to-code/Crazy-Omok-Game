@@ -34,6 +34,14 @@ export default function Home() {
           <div className="game-title">초능력 알까기 {!FLICK_ENABLED && "🔒"}</div>
           <div className="game-sub">{FLICK_ENABLED ? "턴제 물리 배틀 · 2~10명" : "준비 중 (곧 공개)"}</div>
         </button>
+        <button
+          className={`game-card${g === "chess" ? " active" : ""}`}
+          onClick={() => selectGame("chess")}
+        >
+          <div className="game-emoji">♛♚</div>
+          <div className="game-title">집단지성 체스</div>
+          <div className="game-sub">팀 투표로 두는 체스 · 팀당 2~50명</div>
+        </button>
       </div>
 
       <div className="home-buttons">

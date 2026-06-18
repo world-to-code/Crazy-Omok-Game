@@ -93,6 +93,8 @@ pub enum ClientMsg {
     FlickAim { angle: f64, power: f64 },
     /// (알까기) 조준 중 미리보기 공유 (다른 사람들이 방향/세기를 봄).
     FlickAiming { angle: f64, power: f64 },
+    /// (체스) 현재 단계에 칸 투표 (r=랭크 0~7, f=파일 0~7).
+    ChessVote { r: u8, f: u8 },
 }
 
 /// 서버 → 클라이언트
@@ -196,6 +198,32 @@ pub enum ServerMsg {
         angle: f64,
         power: f64,
     },
+    /// (체스) 방 전체 상태 스냅샷.
+    ChessSnapshot {
+        settings: RoomSettings,
+        players: Vec<PlayerInfo>,
+        board: Vec<Vec<Option<ChessPiece>>>,
+        turn: String,    // "w" | "b"
+        phase: String,   // "piece" | "move" | "over"
+        selected: Option<[u8; 2]>,
+        options: Vec<[u8; 2]>,
+        last_move: Option<[[u8; 2]; 2]>,
+        history: Vec<String>,
+        check_status: String,
+        status: String, // 방 상태(lobby/playing/finished)
+        current_team: Option<u8>,
+        deadline_ms: Option<u64>,
+        server_now_ms: u64,
+        winner: Option<String>, // "w"|"b"|"draw"
+        voters: u32,
+        voted: u32,
+    },
+    /// (체스) 현재 팀의 투표 집계 — 해당 팀원에게만 전송.
+    ChessVoteUpdate {
+        tallies: Vec<ChessVoteCell>,
+        voters: u32,
+        voted: u32,
+    },
     /// (알까기) 발사 결과 — 위치 타임라인 + 갱신된 마블 상태 + 다음 차례.
     FlickResolved {
         ids: Vec<Uuid>,
@@ -227,6 +255,19 @@ pub struct FlickEvent {
     pub amount: i32,   // 피해량(0이면 표시 안 함)
     pub owner: Uuid,   // 피해 입은 알(없으면 nil)
     pub hp: i32,       // 그 알의 남은 체력(없으면 -1) — 재생 중 즉시 반영용
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChessPiece {
+    pub t: String, // p,n,b,r,q,k
+    pub c: String, // w,b
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChessVoteCell {
+    pub r: u8,
+    pub f: u8,
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]

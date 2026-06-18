@@ -10,6 +10,7 @@ import {
 } from "react";
 import type {
   ChatLine,
+  ChessPiece,
   ClientMsg,
   FlickEvent,
   FlickItem,
@@ -49,8 +50,22 @@ export interface GameState {
   error: string | null;
   linkCode: string | null;
   // 게임 종류
-  game: string; // 현재 방의 게임 ("omok" | "flick")
-  selectedGame: "omok" | "flick"; // 메인에서 고른 게임
+  game: string; // 현재 방의 게임 ("omok" | "flick" | "chess")
+  selectedGame: "omok" | "flick" | "chess"; // 메인에서 고른 게임
+  // 체스
+  chess: {
+    board: (ChessPiece | null)[][];
+    turn: string;
+    phase: string;
+    selected: [number, number] | null;
+    options: [number, number][];
+    lastMove: [[number, number], [number, number]] | null;
+    history: string[];
+    checkStatus: string;
+    winner: string | null;
+    currentTeam: number | null;
+  } | null;
+  chessTally: Map<string, number>; // "r,f" -> 표수 (내 팀 한정)
   // 알까기
   arenaR: number;
   marbles: FlickMarble[];
@@ -98,6 +113,8 @@ const initial: GameState = {
   linkCode: null,
   game: "omok",
   selectedGame: "omok",
+  chess: null,
+  chessTally: new Map(),
   arenaR: 320,
   marbles: [],
   obstacles: [],
@@ -126,7 +143,7 @@ type Action =
   | { kind: "connected"; value: boolean }
   | { kind: "screen"; screen: Screen }
   | { kind: "linkJoin"; code: string }
-  | { kind: "selectGame"; game: "omok" | "flick" }
+  | { kind: "selectGame"; game: "omok" | "flick" | "chess" }
   | { kind: "flickApply" }
   | { kind: "clearError" }
   | { kind: "reset" };
@@ -186,6 +203,8 @@ const IN_ROOM_MSGS = new Set([
   "FlickDraft",
   "FlickResolved",
   "FlickAiming",
+  "ChessSnapshot",
+  "ChessVoteUpdate",
 ]);
 
 function applyMsg(s: GameState, m: ServerMsg): GameState {
@@ -327,6 +346,42 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         code: m.settings.code,
       };
     }
+    case "ChessSnapshot": {
+      const screen = screenFor(m.status, s.screen);
+      return {
+        ...s,
+        game: "chess",
+        settings: m.settings,
+        mode: m.settings.mode,
+        players: m.players,
+        status: m.status,
+        currentTeam: m.current_team,
+        deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
+        voteVoters: m.voters,
+        voteVoted: m.voted,
+        chess: {
+          board: m.board,
+          turn: m.turn,
+          phase: m.phase,
+          selected: m.selected,
+          options: m.options,
+          lastMove: m.last_move,
+          history: m.history,
+          checkStatus: m.check_status,
+          winner: m.winner,
+          currentTeam: m.current_team,
+        },
+        // 새 단계/스냅샷 → 내 집계 초기화(서버가 표를 비웠음)
+        chessTally: new Map(),
+        screen,
+        code: m.settings.code,
+      };
+    }
+    case "ChessVoteUpdate": {
+      const t = new Map<string, number>();
+      for (const c of m.tallies) t.set(`${c.r},${c.f}`, c.count);
+      return { ...s, chessTally: t, voteVoters: m.voters, voteVoted: m.voted };
+    }
     case "FlickDraft":
       return { ...s, draftOptions: m.options };
     case "FlickAiming":
@@ -402,7 +457,7 @@ interface Ctx {
   state: GameState;
   send: (m: ClientMsg) => void;
   setScreen: (s: Screen) => void;
-  selectGame: (g: "omok" | "flick") => void;
+  selectGame: (g: "omok" | "flick" | "chess") => void;
   applyFlick: () => void;
   returnToLobby: () => void;
   clearError: () => void;
@@ -524,7 +579,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   // dispatch는 안정적이므로 콜백들도 안정적. ctx는 state가 바뀔 때만 새로 만든다.
   const setScreen = useCallback((screen: Screen) => dispatch({ kind: "screen", screen }), []);
-  const selectGame = useCallback((game: "omok" | "flick") => dispatch({ kind: "selectGame", game }), []);
+  const selectGame = useCallback((game: "omok" | "flick" | "chess") => dispatch({ kind: "selectGame", game }), []);
   const applyFlick = useCallback(() => dispatch({ kind: "flickApply" }), []);
   const returnToLobby = useCallback(() => send({ type: "ReturnToLobby" }), [send]);
   const clearError = useCallback(() => dispatch({ kind: "clearError" }), []);

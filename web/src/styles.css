@@ -1028,3 +1028,12 @@ input[type="range"] {
     margin-left: 0;
   }
 }
+
+/* 집단지성 체스: 투표 가능 칸 펄스 애니메이션 */
+@keyframes cc-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+.scl::-webkit-scrollbar { width: 8px; height: 8px; }
+.scl::-webkit-scrollbar-thumb { background: #3a2f29; border-radius: 8px; }
+.scl::-webkit-scrollbar-track { background: transparent; }

@@ -13,6 +13,7 @@ export default function Lobby() {
   const { settings, players, myId, status, mode, game } = state;
   const isHost = settings?.host_id === myId;
   const isFlick = game === "flick";
+  const isChess = game === "chess";
   const isTeam = mode === "team" && !isFlick;
 
   const [orderMode, setOrderMode] = useState<"random" | "manual">("random");
@@ -66,7 +67,7 @@ export default function Lobby() {
       <div className="lobby-main card">
         <button className="back" onClick={leave}>← 방 나가기</button>
         <h2>
-          {settings.name} {isTeam && <span className="mode-pill">🤝 팀전</span>}
+          {settings.name} {isChess ? <span className="mode-pill">♛ 집단지성 체스</span> : isTeam && <span className="mode-pill">🤝 팀전</span>}
           {isFlick && <span className="mode-pill">🌀 알까기</span>}
         </h2>
         <div className="code-box">
@@ -76,7 +77,9 @@ export default function Lobby() {
         </div>
         <InviteLink />
         <div className="settings-summary">
-          {isFlick ? (
+          {isChess ? (
+            <>단계별 투표 {settings.turn_limit_secs}초 · 백 vs 흑 집단지성 </>
+          ) : isFlick ? (
             <>조준 {settings.turn_limit_secs}초 · 최대 {settings.max_players}명 · 최후 1인 승리 </>
           ) : (
             <>
@@ -85,7 +88,7 @@ export default function Lobby() {
             </>
           )}
           {settings.has_password ? "· 🔒 비밀방" : ""}
-          {isHost && (
+          {isHost && !isChess && (
             <button className="edit-toggle" onClick={() => setEditing((v) => !v)}>
               {editing ? "닫기" : "⚙️ 설정 수정"}
             </button>
@@ -105,6 +108,13 @@ export default function Lobby() {
                 <p className="hint">시작하면 각자 초능력 2개 중 1개를 고르고, 차례대로 알을 튕깁니다.</p>
                 <button className="primary big" disabled={players.length < 2} onClick={start}>
                   {players.length < 2 ? "2명 이상 필요" : status === "finished" ? "다시 시작" : "게임 시작"}
+                </button>
+              </>
+            ) : isChess ? (
+              <>
+                <p className="hint">백 팀(Team A)이 선공입니다. 매 턴 팀 투표로 기물과 이동을 결정합니다.</p>
+                <button className="primary big" disabled={!canStartTeam} onClick={start}>
+                  {!canStartTeam ? "양 팀에 1명 이상 필요" : status === "finished" ? "다시 시작" : "게임 시작"}
                 </button>
               </>
             ) : isTeam ? (

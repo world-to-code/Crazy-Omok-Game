@@ -52,6 +52,7 @@ impl GameMode {
 pub enum GameKind {
     Omok,
     Flick,
+    Chess,
 }
 
 impl GameKind {
@@ -59,6 +60,7 @@ impl GameKind {
         match self {
             GameKind::Omok => "omok",
             GameKind::Flick => "flick",
+            GameKind::Chess => "chess",
         }
     }
 }
@@ -97,6 +99,8 @@ pub struct Room {
     pub game: GameKind,
     /// 알까기 게임 상태 (game == Flick 일 때만 Some).
     pub flick: Option<crate::flick::FlickGame>,
+    /// 체스 게임 상태 (game == Chess 일 때만 Some).
+    pub chess: Option<crate::chess::ChessGame>,
     pub players: Vec<Player>,
     pub order: Vec<Uuid>,
     pub turn_idx: usize,
@@ -141,6 +145,28 @@ impl Room {
             return self.order.get(self.turn_idx).copied();
         }
         None
+    }
+
+    /// (체스) 현재 차례 팀의 (접속 인원, 투표 완료 인원).
+    pub fn chess_vote_counts(&self) -> (u32, u32) {
+        let Some(c) = &self.chess else {
+            return (0, 0);
+        };
+        if self.status != RoomStatus::Playing {
+            return (0, 0);
+        }
+        let team = c.turn.team();
+        let mut voters = 0;
+        let mut voted = 0;
+        for p in &self.players {
+            if p.team == Some(team) && p.connected() {
+                voters += 1;
+                if c.votes.contains_key(&p.id) {
+                    voted += 1;
+                }
+            }
+        }
+        (voters, voted)
     }
 
     pub fn current_team(&self) -> Option<u8> {
@@ -266,6 +292,56 @@ impl Room {
                 deadline_ms: self.deadline_ms,
                 server_now_ms: now_ms(),
                 winner: self.winner,
+            };
+        }
+        if self.game == GameKind::Chess {
+            use crate::chess::Phase;
+            let (board, turn, phase, selected, options, last_move, history, check_status, winner, current_team) =
+                match &self.chess {
+                    Some(c) => (
+                        c.board_infos(),
+                        c.turn.as_str().to_string(),
+                        c.phase.as_str().to_string(),
+                        c.selected_info(),
+                        c.option_infos(),
+                        c.last_move_info(),
+                        c.history.clone(),
+                        c.status.clone(),
+                        c.winner.clone(),
+                        if c.phase == Phase::Over { None } else { Some(c.turn.team()) },
+                    ),
+                    None => (
+                        vec![vec![None; 8]; 8],
+                        "w".to_string(),
+                        "piece".to_string(),
+                        None,
+                        Vec::new(),
+                        None,
+                        Vec::new(),
+                        String::new(),
+                        None,
+                        None,
+                    ),
+                };
+            let (voters, voted) = self.chess_vote_counts();
+            return ServerMsg::ChessSnapshot {
+                settings: self.settings(),
+                players: self.player_infos(),
+                board,
+                turn,
+                phase,
+                selected,
+                options,
+                last_move,
+                history,
+                check_status,
+                status: self.status.as_str().to_string(),
+                current_team,
+                deadline_ms: self.deadline_ms,
+                server_now_ms: now_ms(),
+                winner,
+                voters,
+                voted,
             };
         }
         let board: Vec<Stone> = self

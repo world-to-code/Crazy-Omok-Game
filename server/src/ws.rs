@@ -153,15 +153,21 @@ fn handle_client_msg(
         } => {
             let game = match game.as_deref() {
                 Some("flick") => GameKind::Flick,
+                Some("chess") => GameKind::Chess,
                 _ => GameKind::Omok,
             };
-            let mode = match mode.as_deref() {
+            let mut mode = match mode.as_deref() {
                 Some("team") => GameMode::Team,
                 _ => GameMode::Classic,
             };
-            // 인원 상한: 알까기 2~10, 오목 팀전 무제한(100), 오목 클래식 2~20.
+            // 체스는 항상 팀전(집단지성).
+            if game == GameKind::Chess {
+                mode = GameMode::Team;
+            }
+            // 인원 상한: 알까기 2~10, 체스/오목 팀전 무제한(100), 오목 클래식 2~20.
             let max_players = match game {
                 GameKind::Flick => max_players.clamp(2, 10),
+                GameKind::Chess => 100,
                 GameKind::Omok if mode == GameMode::Team => 100,
                 GameKind::Omok => max_players.clamp(2, 20),
             };
@@ -204,6 +210,7 @@ fn handle_client_msg(
                 mode,
                 game,
                 flick: None,
+                chess: None,
                 players: vec![host],
                 order: Vec::new(),
                 turn_idx: 0,
@@ -387,6 +394,25 @@ fn handle_client_msg(
                 return;
             }
 
+            // ===== 체스(집단지성) =====
+            if room.game == GameKind::Chess {
+                if room.team_connected(0) == 0 || room.team_connected(1) == 0 {
+                    err(tx, "양 팀에 각각 1명 이상 있어야 시작할 수 있습니다");
+                    return;
+                }
+                room.chess = Some(crate::chess::ChessGame::new());
+                room.current_team = 0; // 백=팀A 선공
+                room.status = RoomStatus::Playing;
+                room.turn_generation += 1;
+                let generation = room.turn_generation;
+                let limit = room.turn_limit_secs;
+                room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
+                let snap = room.snapshot();
+                room.broadcast(&snap);
+                spawn_chess_timer(state.clone(), code, generation, limit);
+                return;
+            }
+
             if room.mode == GameMode::Team {
                 if room.team_connected(0) == 0 || room.team_connected(1) == 0 {
                     err(tx, "양 팀에 각각 1명 이상 있어야 시작할 수 있습니다");
@@ -537,6 +563,53 @@ fn handle_client_msg(
             // 전원 투표 완료 시 즉시 확정
             if voters > 0 && voted >= voters {
                 resolve_team_turn(state, room, &code);
+            }
+        }
+
+        ClientMsg::ChessVote { r, f } => {
+            let Some((code, pid)) = session.clone() else {
+                return;
+            };
+            let mut rooms = state.rooms();
+            let Some(room) = rooms.get_mut(&code) else {
+                return;
+            };
+            if room.game != GameKind::Chess || room.status != RoomStatus::Playing {
+                return;
+            }
+            if r >= 8 || f >= 8 {
+                return;
+            }
+            let Some(c) = room.chess.as_ref() else {
+                return;
+            };
+            let side_team = c.turn.team();
+            let my_team = room.find(pid).and_then(|p| p.team);
+            if my_team != Some(side_team) {
+                err(tx, "당신 팀의 차례가 아닙니다");
+                return;
+            }
+            let ok = room
+                .chess
+                .as_mut()
+                .map(|c| c.vote(pid, (r as i32, f as i32)))
+                .unwrap_or(false);
+            if !ok {
+                return;
+            }
+            // 현재 팀에게만 집계(히트맵) 전송
+            let tallies = room.chess.as_ref().unwrap().tally_infos();
+            let (voters, voted) = room.chess_vote_counts();
+            room.broadcast_team(
+                side_team,
+                &ServerMsg::ChessVoteUpdate {
+                    tallies,
+                    voters,
+                    voted,
+                },
+            );
+            if voters > 0 && voted >= voters {
+                resolve_chess(state, room, &code);
             }
         }
 
@@ -864,6 +937,53 @@ fn start_flick_first_turn(state: &Arc<AppState>, room: &mut Room, code: &str) {
         room.broadcast(&snap);
         spawn_flick_timer(state.clone(), code.to_string(), generation, limit);
     }
+}
+
+/// (체스) 현재 단계 투표를 확정하고 다음 단계/턴으로 진행.
+fn resolve_chess(state: &Arc<AppState>, room: &mut Room, code: &str) {
+    let over = match room.chess.as_mut() {
+        Some(c) => c.resolve(),
+        None => return,
+    };
+    room.turn_generation += 1;
+    if over {
+        room.status = RoomStatus::Finished;
+        room.deadline_ms = None;
+        room.winner_team = match room.chess.as_ref().and_then(|c| c.winner.clone()).as_deref() {
+            Some("w") => Some(0),
+            Some("b") => Some(1),
+            _ => None,
+        };
+        let snap = room.snapshot();
+        room.broadcast(&snap);
+        return;
+    }
+    let team = room.chess.as_ref().map(|c| c.turn.team()).unwrap_or(0);
+    room.current_team = team;
+    let limit = room.turn_limit_secs;
+    room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
+    let generation = room.turn_generation;
+    let snap = room.snapshot();
+    room.broadcast(&snap);
+    spawn_chess_timer(state.clone(), code.to_string(), generation, limit);
+}
+
+/// (체스) 단계 투표 시간 초과 처리 타이머.
+fn spawn_chess_timer(state: Arc<AppState>, code: String, generation: u64, limit_secs: u32) {
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(limit_secs as u64)).await;
+        let mut rooms = state.rooms();
+        let Some(room) = rooms.get_mut(&code) else {
+            return;
+        };
+        if room.game != GameKind::Chess
+            || room.status != RoomStatus::Playing
+            || room.turn_generation != generation
+        {
+            return;
+        }
+        resolve_chess(&state, room, &code);
+    });
 }
 
 /// (알까기) 드래프트/차례 시간 초과 처리 타이머.
