@@ -28,6 +28,74 @@ const GRAV_ACCEL: f64 = 850.0;
 const WIND_ACCEL: f64 = 650.0;
 const BOOST_MULT: f64 = 1.018;
 const SWAMP_MULT: f64 = 0.92;
+// 필드 아이템(획득형 버프)
+const ITEM_R: f64 = 30.0;
+const ITEM_MAX_FIELD: usize = 8; // 필드에 동시에 유지되는 최대 개수
+const ITEM_MAX_PER_TURN: usize = 4; // 한 턴에 최대 생성 개수
+const ITEM_SPAWN_CHANCE: f64 = 0.65; // 턴마다 아이템이 (1개 이상) 생길 확률
+
+/// 필드 아이템 10종. 알이 지나가며 획득하면 효과 발동(영구/1회).
+#[derive(Clone, Copy, PartialEq)]
+pub enum ItemKind {
+    DmgUp,     // 다음 공격 데미지 +20% (1회)
+    Crit,      // 다음 공격 데미지 2배 (1회)
+    Shield,    // 공격 1회 무효
+    AtkPerm,   // 공격력 +1 (영구)
+    DefPerm,   // 방어력 +1 (영구)
+    Heal,      // 잃은 체력 50% 회복
+    MaxHp,     // 최대 체력 +20 (+그만큼 회복)
+    Power,     // 다음 발사 세기 +30% (1회)
+    Lifesteal, // 다음 공격 입힌 피해 50% 회복 (1회)
+    Explode,   // 다음 충돌 시 폭발 (1회)
+}
+
+const ALL_ITEMS: [ItemKind; 10] = [
+    ItemKind::DmgUp,
+    ItemKind::Crit,
+    ItemKind::Shield,
+    ItemKind::AtkPerm,
+    ItemKind::DefPerm,
+    ItemKind::Heal,
+    ItemKind::MaxHp,
+    ItemKind::Power,
+    ItemKind::Lifesteal,
+    ItemKind::Explode,
+];
+
+impl ItemKind {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ItemKind::DmgUp => "dmg_up",
+            ItemKind::Crit => "crit",
+            ItemKind::Shield => "shield",
+            ItemKind::AtkPerm => "atk",
+            ItemKind::DefPerm => "def",
+            ItemKind::Heal => "heal",
+            ItemKind::MaxHp => "maxhp",
+            ItemKind::Power => "power",
+            ItemKind::Lifesteal => "lifesteal",
+            ItemKind::Explode => "explode",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct Item {
+    pub kind: ItemKind,
+    pub x: f64,
+    pub y: f64,
+}
+
+impl Item {
+    fn info(&self) -> crate::protocol::FlickItem {
+        crate::protocol::FlickItem {
+            kind: self.kind.as_str().to_string(),
+            x: self.x as f32,
+            y: self.y as f32,
+            r: ITEM_R as f32,
+        }
+    }
+}
 
 /// 공격 계열 / 유틸 계열에서 하나씩 뽑아 2개 제시(서로 다른 성격).
 const OFFENSE: [&str; 5] = ["explosion", "heavy", "pierce", "spikes", "lifesteal"];
@@ -227,6 +295,12 @@ pub struct Marble {
     pub power: String,
     pub shield: bool,
     pub color_index: u8,
+    // 아이템으로 얻는 1회성 버프(다음 발사에 적용 후 소모)
+    pub buff_dmg_up: bool,
+    pub buff_crit: bool,
+    pub buff_power: f64, // 다음 발사 세기 배수(기본 1.0)
+    pub buff_lifesteal: bool,
+    pub buff_explode: bool,
 }
 
 impl Marble {
@@ -259,9 +333,14 @@ pub struct FlickGame {
     pub obstacles: Vec<Obstacle>,
     pub drafting: bool,
     pub draft: HashMap<Uuid, DraftOffer>,
+    pub items: Vec<Item>,
     // 발사 시뮬 중 충돌 이벤트 수집(클라 이펙트용). resolve마다 초기화.
     ev: Vec<crate::protocol::FlickEvent>,
     ev_frame: u32,
+    // 이번 발사의 1회성 버프(resolve 시작 시 발사자 버프를 흡수해 소모).
+    shot_dmg_mult: f64,
+    shot_lifesteal: bool,
+    shot_explode: bool,
 }
 
 impl FlickGame {
@@ -289,6 +368,11 @@ impl FlickGame {
                 power: String::new(),
                 shield: false,
                 color_index: colors.get(&id).copied().unwrap_or(0),
+                buff_dmg_up: false,
+                buff_crit: false,
+                buff_power: 1.0,
+                buff_lifesteal: false,
+                buff_explode: false,
             });
             draft.insert(
                 id,
@@ -305,9 +389,81 @@ impl FlickGame {
             obstacles: generate_obstacles(ARENA_R, &starts),
             drafting: true,
             draft,
+            items: Vec::new(),
             ev: Vec::new(),
             ev_frame: 0,
+            shot_dmg_mult: 1.0,
+            shot_lifesteal: false,
+            shot_explode: false,
         }
+    }
+
+    pub fn item_infos(&self) -> Vec<crate::protocol::FlickItem> {
+        self.items.iter().map(|it| it.info()).collect()
+    }
+
+    /// 턴마다 호출: 일정 확률로 아이템을 1~4개 생성(필드 최대 8개).
+    pub fn tick_items(&mut self) {
+        let mut rng = rand::thread_rng();
+        if self.items.len() >= ITEM_MAX_FIELD || rng.gen::<f64>() > ITEM_SPAWN_CHANCE {
+            return;
+        }
+        let want = rng.gen_range(1..=ITEM_MAX_PER_TURN).min(ITEM_MAX_FIELD - self.items.len());
+        for _ in 0..want {
+            let kind = *ALL_ITEMS.choose(&mut rng).unwrap();
+            // 겹치지 않는 자리(장애물 솔리드/알/기존 아이템 회피).
+            let mut placed = None;
+            for _ in 0..40 {
+                let ang = rand_range(&mut rng, 0.0, std::f64::consts::TAU);
+                let dist = rand_range(&mut rng, self.arena_r * 0.1, self.arena_r * 0.85);
+                let x = dist * ang.cos();
+                let y = dist * ang.sin();
+                let near_solid = self.obstacles.iter().any(|o| {
+                    o.kind.is_solid()
+                        && ((x - o.x).powi(2) + (y - o.y).powi(2)).sqrt()
+                            < ITEM_R + bound_radius(o.kind, o.r, o.w, o.h) + 20.0
+                });
+                let near_marble = self.marbles.iter().any(|m| {
+                    m.alive && ((x - m.x).powi(2) + (y - m.y).powi(2)).sqrt() < ITEM_R + m.r + 30.0
+                });
+                let near_item = self
+                    .items
+                    .iter()
+                    .any(|it| ((x - it.x).powi(2) + (y - it.y).powi(2)).sqrt() < ITEM_R * 2.0 + 20.0);
+                if !near_solid && !near_marble && !near_item {
+                    placed = Some((x, y));
+                    break;
+                }
+            }
+            if let Some((x, y)) = placed {
+                self.items.push(Item { kind, x, y });
+            }
+        }
+    }
+
+    /// 알이 아이템을 획득했을 때 효과 적용 + 이벤트.
+    fn apply_item(&mut self, idx: usize, kind: ItemKind) {
+        let m = &mut self.marbles[idx];
+        match kind {
+            ItemKind::DmgUp => m.buff_dmg_up = true,
+            ItemKind::Crit => m.buff_crit = true,
+            ItemKind::Shield => m.shield = true,
+            ItemKind::AtkPerm => m.atk += 1,
+            ItemKind::DefPerm => m.def += 1,
+            ItemKind::Heal => {
+                let restore = (m.max_hp - m.hp) / 2;
+                m.hp = (m.hp + restore).min(m.max_hp);
+            }
+            ItemKind::MaxHp => {
+                m.max_hp += 20;
+                m.hp = (m.hp + 20).min(m.max_hp);
+            }
+            ItemKind::Power => m.buff_power = (m.buff_power * 1.3).min(2.0),
+            ItemKind::Lifesteal => m.buff_lifesteal = true,
+            ItemKind::Explode => m.buff_explode = true,
+        }
+        let (x, y, owner, hp) = (m.x, m.y, m.owner, m.hp);
+        self.push_event(x, y, &format!("item:{}", kind.as_str()), 0, owner, hp);
     }
 
     fn push_event(&mut self, x: f64, y: f64, kind: &str, amount: i32, owner: Uuid, hp: i32) {
@@ -412,7 +568,27 @@ impl FlickGame {
             .map(|m| m.power == "slingshot")
             .unwrap_or(false);
         let cap = if slingshot { POWER_CAP_UNLIMITED } else { POWER_CAP };
-        let speed = power.clamp(0.05, cap) * MAX_SPEED;
+        // 발사자의 1회성 버프를 이번 발사에 흡수(소모).
+        let (mut dm, mut ls, mut ex, mut power_mult) = (1.0, false, false, 1.0);
+        if let Some(m) = self.marble_mut(shooter) {
+            if m.buff_crit {
+                dm = 2.0;
+            } else if m.buff_dmg_up {
+                dm = 1.2;
+            }
+            ls = m.buff_lifesteal;
+            ex = m.buff_explode;
+            power_mult = m.buff_power;
+            m.buff_crit = false;
+            m.buff_dmg_up = false;
+            m.buff_lifesteal = false;
+            m.buff_explode = false;
+            m.buff_power = 1.0;
+        }
+        self.shot_dmg_mult = dm;
+        self.shot_lifesteal = ls;
+        self.shot_explode = ex;
+        let speed = power.clamp(0.05, cap) * MAX_SPEED * power_mult;
         if let Some(m) = self.marble_mut(shooter) {
             m.vx = angle.cos() * speed;
             m.vy = angle.sin() * speed;
@@ -473,6 +649,19 @@ impl FlickGame {
                 }
                 if in_lava && step % 8 == 0 {
                     self.apply_hp(i, -2);
+                }
+
+                // 아이템 획득(지나가며 닿으면)
+                if !self.items.is_empty() {
+                    let (px, py, pr) = (self.marbles[i].x, self.marbles[i].y, self.marbles[i].r);
+                    if let Some(k) = self
+                        .items
+                        .iter()
+                        .position(|it| ((px - it.x).powi(2) + (py - it.y).powi(2)).sqrt() < pr + ITEM_R)
+                    {
+                        let item = self.items.remove(k);
+                        self.apply_item(i, item.kind);
+                    }
                 }
             }
 
@@ -632,13 +821,21 @@ impl FlickGame {
             self.damage(j, i, impact, shooter);
         }
 
-        // 폭발: 발사자의 첫 충돌 시 광역 넉백+데미지
-        let i_is_shooter = self.marbles[i].owner == shooter && self.marbles[i].power == "explosion";
-        let j_is_shooter = self.marbles[j].owner == shooter && self.marbles[j].power == "explosion";
-        if !*explosion_fired && (i_is_shooter || j_is_shooter) {
-            let center = if i_is_shooter { i } else { j };
-            *explosion_fired = true;
-            self.explode(center);
+        // 폭발: 발사자의 첫 충돌 시 광역 넉백+데미지 (폭발 능력 또는 폭발 아이템 버프)
+        let sh_idx = if i_shooter {
+            Some(i)
+        } else if j_shooter {
+            Some(j)
+        } else {
+            None
+        };
+        if !*explosion_fired {
+            if let Some(c) = sh_idx {
+                if self.marbles[c].power == "explosion" || self.shot_explode {
+                    *explosion_fired = true;
+                    self.explode(c);
+                }
+            }
         }
     }
 
@@ -647,16 +844,20 @@ impl FlickGame {
     fn damage(&mut self, v: usize, a: usize, impact: f64, shooter: Uuid) {
         let atk = self.marbles[a].atk as f64;
         let def = self.marbles[v].def as f64;
+        let is_shooter = self.marbles[a].owner == shooter;
         // 방어력은 비율 감소(체감) — 절대 0이 되지 않게.
         let raw = impact * DMG_K * atk;
-        let mut dmg = (raw * 100.0 / (100.0 + def * 6.0)).round() as i32;
+        // 발사자의 아이템 버프(데미지 +20% / 2배)를 곱한다.
+        let mult = if is_shooter { self.shot_dmg_mult } else { 1.0 };
+        let mut dmg = (raw * 100.0 / (100.0 + def * 6.0) * mult).round() as i32;
         if dmg < 1 && raw >= 2.0 {
             dmg = 1; // 의미있는 충돌은 최소 1 피해
         }
         // 슬링샷(무제한) 발사자의 타격은 피해 상한 없음 — 세게 칠수록 강함.
-        let uncapped = self.marbles[a].owner == shooter && self.marbles[a].power == "slingshot";
+        let uncapped = is_shooter && self.marbles[a].power == "slingshot";
         if !uncapped {
-            dmg = dmg.min(DMG_CAP);
+            let cap = (DMG_CAP as f64 * mult.max(1.0)) as i32; // 버프 시 상한도 비례 상향
+            dmg = dmg.min(cap);
         }
         if dmg <= 0 {
             return;
@@ -678,8 +879,8 @@ impl FlickGame {
         let mb = &self.marbles[v];
         let (vx, vy, dead, owner, hp) = (mb.x, mb.y, !mb.alive, mb.owner, mb.hp);
         self.push_event(vx, vy, if dead { "ko" } else { "hit" }, dmg, owner, hp);
-        // 흡혈: 공격자가 입힌 피해의 일부 회복
-        if self.marbles[a].power == "lifesteal" {
+        // 흡혈: 공격자가 입힌 피해의 일부 회복 (능력 또는 아이템 버프)
+        if self.marbles[a].power == "lifesteal" || (is_shooter && self.shot_lifesteal) {
             self.apply_hp(a, dmg / 2);
         }
         let _ = &mut dmg;

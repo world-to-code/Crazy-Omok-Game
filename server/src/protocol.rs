@@ -177,6 +177,7 @@ pub enum ServerMsg {
         arena_r: f32,
         marbles: Vec<FlickMarble>,
         obstacles: Vec<FlickObstacle>,
+        items: Vec<FlickItem>,
         status: String,
         drafting: bool,
         current_turn: Option<Uuid>,
@@ -196,6 +197,7 @@ pub enum ServerMsg {
         timeline: Vec<Vec<[i16; 2]>>,
         events: Vec<FlickEvent>,
         marbles: Vec<FlickMarble>,
+        items: Vec<FlickItem>,
         current_turn: Option<Uuid>,
         deadline_ms: Option<u64>,
         server_now_ms: u64,
@@ -220,6 +222,14 @@ pub struct FlickEvent {
     pub amount: i32,   // 피해량(0이면 표시 안 함)
     pub owner: Uuid,   // 피해 입은 알(없으면 nil)
     pub hp: i32,       // 그 알의 남은 체력(없으면 -1) — 재생 중 즉시 반영용
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FlickItem {
+    pub kind: String,
+    pub x: f32,
+    pub y: f32,
+    pub r: f32,
 }
 
 #[derive(Debug, Clone, Serialize)]

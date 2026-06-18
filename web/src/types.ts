@@ -64,6 +64,27 @@ export interface FlickEvent {
   hp: number; // 그 알의 남은 체력(없으면 -1)
 }
 
+export interface FlickItem {
+  kind: string;
+  x: number;
+  y: number;
+  r: number;
+}
+
+// 필드 아이템 10종 표시 정보
+export const ITEM_INFO: Record<string, { name: string; emoji: string; color: string }> = {
+  dmg_up: { name: "공격 +20%", emoji: "⚔️", color: "#f59e0b" },
+  crit: { name: "치명타 2배", emoji: "💢", color: "#ef4444" },
+  shield: { name: "보호막", emoji: "🛡️", color: "#7dd3fc" },
+  atk: { name: "공격력 +1", emoji: "🗡️", color: "#fb7185" },
+  def: { name: "방어력 +1", emoji: "🔰", color: "#60a5fa" },
+  heal: { name: "체력 회복", emoji: "💚", color: "#4ade80" },
+  maxhp: { name: "최대체력 +20", emoji: "❤️", color: "#f43f5e" },
+  power: { name: "발사세기 +30%", emoji: "🚀", color: "#a78bfa" },
+  lifesteal: { name: "흡혈", emoji: "🧛", color: "#c084fc" },
+  explode: { name: "폭발탄", emoji: "💣", color: "#fb923c" },
+};
+
 export interface FlickObstacle {
   kind: string;
   shape: string; // "circle" | "rect"
@@ -165,6 +186,7 @@ export type ServerMsg =
       arena_r: number;
       marbles: FlickMarble[];
       obstacles: FlickObstacle[];
+      items: FlickItem[];
       status: string;
       drafting: boolean;
       current_turn: string | null;
@@ -180,6 +202,7 @@ export type ServerMsg =
       timeline: [number, number][][];
       events: FlickEvent[];
       marbles: FlickMarble[];
+      items: FlickItem[];
       current_turn: string | null;
       deadline_ms: number | null;
       server_now_ms: number;

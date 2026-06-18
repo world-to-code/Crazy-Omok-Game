@@ -755,11 +755,13 @@ fn handle_client_msg(
                 room.status = RoomStatus::Finished;
                 room.winner = winner;
                 room.deadline_ms = None;
+                let items = room.flick.as_ref().map(|x| x.item_infos()).unwrap_or_default();
                 room.broadcast(&ServerMsg::FlickResolved {
                     ids,
                     timeline,
                     events,
                     marbles,
+                    items,
                     current_turn: None,
                     deadline_ms: None,
                     server_now_ms: now_ms(),
@@ -769,10 +771,14 @@ fn handle_client_msg(
                 return;
             }
 
-            // 다음 차례로
+            // 다음 차례로 + 아이템 생성(턴마다)
             let n = room.order.len();
             room.turn_idx = (room.turn_idx + 1) % n;
             let next = advance_flick_turn(room);
+            if let Some(x) = room.flick.as_mut() {
+                x.tick_items();
+            }
+            let items = room.flick.as_ref().map(|x| x.item_infos()).unwrap_or_default();
             let generation = room.turn_generation;
             let limit = room.turn_limit_secs;
             room.broadcast(&ServerMsg::FlickResolved {
@@ -780,6 +786,7 @@ fn handle_client_msg(
                 timeline,
                 events,
                 marbles,
+                items,
                 current_turn: next,
                 deadline_ms: room.deadline_ms,
                 server_now_ms: now_ms(),
@@ -840,6 +847,9 @@ fn advance_flick_turn(room: &mut Room) -> Option<Uuid> {
 fn start_flick_first_turn(state: &Arc<AppState>, room: &mut Room, code: &str) {
     room.turn_idx = 0;
     if advance_flick_turn(room).is_some() {
+        if let Some(f) = room.flick.as_mut() {
+            f.tick_items();
+        }
         let generation = room.turn_generation;
         let limit = room.turn_limit_secs;
         let snap = room.snapshot();
@@ -879,6 +889,9 @@ fn spawn_flick_timer(state: Arc<AppState>, code: String, generation: u64, limit_
         }
         room.turn_idx = (room.turn_idx + 1) % n;
         if advance_flick_turn(room).is_some() {
+            if let Some(f) = room.flick.as_mut() {
+                f.tick_items();
+            }
             let gen = room.turn_generation;
             let limit = room.turn_limit_secs;
             let snap = room.snapshot();

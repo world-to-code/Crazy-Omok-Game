@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useGame } from "../state/store";
-import { POWER_INFO, OBSTACLE_INFO, playerColor } from "../types";
+import { POWER_INFO, OBSTACLE_INFO, ITEM_INFO, playerColor } from "../types";
 import Countdown from "../components/Countdown";
 import Chat from "../components/Chat";
 import { ensureFlickWasm, predictPath } from "../net/flickWasm";
@@ -124,6 +124,8 @@ function Arena() {
   arenaRRef.current = state.arenaR;
   const obstaclesRef = useRef(state.obstacles);
   obstaclesRef.current = state.obstacles;
+  const itemsRef = useRef(state.items);
+  itemsRef.current = state.items;
   const myId = state.myId;
   const myTurn = state.status === "playing" && !state.drafting && state.currentTurn === myId;
   const myTurnRef = useRef(myTurn);
@@ -142,6 +144,9 @@ function Arena() {
   const dmgTextsRef = useRef<{ x: number; y: number; amount: number; ko: boolean; t0: number }[]>([]);
   // 재생 중 즉시 반영할 체력(이벤트 시점마다 갱신). 재생 끝나면 비움.
   const displayHpRef = useRef<Record<string, number>>({});
+  // 재생 중 표시할 아이템(획득하면 제거). null이면 state.items 사용.
+  const displayItemsRef = useRef<typeof state.items | null>(null);
+  const pickTextsRef = useRef<{ x: number; y: number; kind: string; t0: number }[]>([]);
   const trailsRef = useRef<Record<string, [number, number][]>>({});
   const lastAimSentRef = useRef(0);
 
@@ -180,6 +185,7 @@ function Arena() {
     let evIdx = 0;
     let raf = 0;
     displayHpRef.current = {}; // 이번 발사 재생용 체력 누적 초기화
+    displayItemsRef.current = itemsRef.current.map((it) => ({ ...it })); // 재생용 아이템 사본
 
     const NIL = "00000000-0000-0000-0000-000000000000";
     const fireEvent = (
@@ -191,9 +197,29 @@ function Arena() {
       hp: number,
     ) => {
       const now = performance.now();
+      if (owner && owner !== NIL && hp >= 0) displayHpRef.current[owner] = hp; // 즉시 체력 반영
+      // 아이템 획득 이벤트("item:<kind>")
+      if (kind.startsWith("item:")) {
+        const ik = kind.slice(5);
+        pickTextsRef.current.push({ x, y, kind: ik, t0: now });
+        // 표시 아이템에서 가장 가까운 것 제거
+        const list = displayItemsRef.current;
+        if (list && list.length) {
+          let best = 0;
+          let bd = Infinity;
+          for (let i = 0; i < list.length; i++) {
+            const d = (list[i].x - x) ** 2 + (list[i].y - y) ** 2;
+            if (d < bd) {
+              bd = d;
+              best = i;
+            }
+          }
+          list.splice(best, 1);
+        }
+        return;
+      }
       particlesRef.current.push({ x, y, kind, t0: now });
       if (amount > 0) dmgTextsRef.current.push({ x, y, amount, ko: kind === "ko", t0: now });
-      if (owner && owner !== NIL && hp >= 0) displayHpRef.current[owner] = hp; // 즉시 체력 반영
       const strong = kind === "explode" || kind === "ko";
       shakeRef.current = {
         until: now + (strong ? 460 : 260),
@@ -214,6 +240,7 @@ function Arena() {
           fireEvent(e.kind, e.x, e.y, e.amount, e.owner, e.hp);
         }
         animRef.current = null;
+        displayItemsRef.current = null;
         applyFlick(); // 돌이 멈춘 뒤 차례 전환
         return;
       }
@@ -316,6 +343,31 @@ function Arena() {
       const tsec = performance.now() / 1000;
       for (const ob of obstaclesRef.current) {
         drawObstacle(ctx, ob, toS, zoom, tsec);
+      }
+
+      // 필드 아이템 (획득형 버프)
+      const items = anim ? displayItemsRef.current ?? itemsRef.current : itemsRef.current;
+      for (const it of items) {
+        const info = ITEM_INFO[it.kind];
+        if (!info) continue;
+        const [ix, iy] = toS(it.x, it.y);
+        const ir = it.r * zoom;
+        const bob = Math.sin(tsec * 3 + it.x * 0.01) * 2;
+        ctx.save();
+        ctx.shadowColor = info.color;
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(ix, iy + bob, ir, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(10,12,30,0.85)";
+        ctx.fill();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = info.color;
+        ctx.stroke();
+        ctx.restore();
+        ctx.font = `${Math.min(22, ir * 1.1)}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(info.emoji, ix, iy + bob);
       }
 
       // 마블 이동 잔상(트레일) — 재생 중에만
@@ -501,6 +553,32 @@ function Arena() {
         ctx.restore();
       }
       dmgTextsRef.current = liveTexts;
+
+      // 아이템 획득 표시(이름 + 이모지 떠오름)
+      const livePick: typeof pickTextsRef.current = [];
+      for (const pt of pickTextsRef.current) {
+        const age = nowp - pt.t0;
+        const life = 1100;
+        if (age > life) continue;
+        livePick.push(pt);
+        const info = ITEM_INFO[pt.kind];
+        if (!info) continue;
+        const t = age / life;
+        const [px, py] = toS(pt.x, pt.y);
+        ctx.save();
+        ctx.globalAlpha = 1 - t;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "bold 16px sans-serif";
+        ctx.fillStyle = info.color;
+        ctx.strokeStyle = "rgba(0,0,0,0.6)";
+        ctx.lineWidth = 3;
+        const ty = py - 26 - t * 30;
+        ctx.strokeText(`${info.emoji} ${info.name}`, px, ty);
+        ctx.fillText(`${info.emoji} ${info.name}`, px, ty);
+        ctx.restore();
+      }
+      pickTextsRef.current = livePick;
 
       // 미니맵(전체 전장 파악) — 우상단, 카메라와 무관한 화면 좌표
       const MS = Math.min(150, size * 0.26);

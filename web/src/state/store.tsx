@@ -10,6 +10,7 @@ import type {
   ChatLine,
   ClientMsg,
   FlickEvent,
+  FlickItem,
   FlickMarble,
   FlickObstacle,
   PlayerInfo,
@@ -52,12 +53,14 @@ export interface GameState {
   arenaR: number;
   marbles: FlickMarble[];
   obstacles: FlickObstacle[];
+  items: FlickItem[];
   drafting: boolean;
   draftOptions: string[] | null;
   flickResolve: { ids: string[]; timeline: [number, number][][]; events: FlickEvent[]; seq: number } | null;
   // 재생이 끝나면 적용할 다음 차례 상태(돌이 멈춘 뒤 전환).
   flickPending: {
     marbles: FlickMarble[];
+    items: FlickItem[];
     currentTurn: string | null;
     deadlineMs: number | null;
     status: string;
@@ -96,6 +99,7 @@ const initial: GameState = {
   arenaR: 320,
   marbles: [],
   obstacles: [],
+  items: [],
   drafting: false,
   draftOptions: null,
   flickResolve: null,
@@ -141,6 +145,7 @@ function reducer(s: GameState, a: Action): GameState {
       return {
         ...s,
         marbles: p.marbles,
+        items: p.items,
         currentTurn: p.currentTurn,
         deadlineMs: p.deadlineMs,
         status: p.status,
@@ -305,6 +310,7 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         arenaR: m.arena_r,
         marbles: m.marbles,
         obstacles: m.obstacles,
+        items: m.items,
         status: m.status,
         drafting: m.drafting,
         draftOptions: m.drafting ? s.draftOptions : null,
@@ -340,6 +346,7 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         },
         flickPending: {
           marbles: m.marbles,
+          items: m.items,
           currentTurn: m.current_turn,
           deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
           status: m.status,
