@@ -24,8 +24,15 @@ static NEXT_CONN: AtomicU64 = AtomicU64::new(1);
 /// 입력 글자 수 제한.
 const MAX_NICKNAME: usize = 12;
 const MAX_ROOM_NAME: usize = 20;
-/// 선택 가능한 색 팔레트 크기 (클라 playerColor 인덱스와 일치).
-const COLOR_PALETTE: u8 = 24;
+
+/// "#rgb"/"#rgba"/"#rrggbb"/"#rrggbbaa" 형태의 hex 색상인지 검증.
+fn is_hex_color(s: &str) -> bool {
+    if s.len() > 9 || !s.starts_with('#') {
+        return false;
+    }
+    let hex = &s[1..];
+    matches!(hex.len(), 3 | 4 | 6 | 8) && hex.bytes().all(|c| c.is_ascii_hexdigit())
+}
 const MAX_CHAT: usize = 50;
 /// 채팅 속도 제한 (ms).
 const CHAT_COOLDOWN_MS: u64 = 500;
@@ -195,6 +202,7 @@ fn handle_client_msg(
                 id: pid,
                 nickname,
                 color_index: 0,
+                color: None,
                 team: None,
                 last_chat_ms: 0,
                 ip: ip.to_string(),
@@ -740,7 +748,7 @@ fn handle_client_msg(
             room.broadcast(&snap);
         }
 
-        ClientMsg::SetColor { index } => {
+        ClientMsg::SetColor { color } => {
             let Some((code, pid)) = session.clone() else {
                 return;
             };
@@ -752,20 +760,11 @@ fn handle_client_msg(
                 err(tx, "게임 중에는 색을 바꿀 수 없습니다");
                 return;
             }
-            if index >= COLOR_PALETTE {
-                return;
-            }
-            // 다른(접속 중) 플레이어가 쓰는 색이면 거부.
-            if room
-                .players
-                .iter()
-                .any(|p| p.id != pid && p.connected() && p.color_index == index)
-            {
-                err(tx, "이미 사용 중인 색입니다");
-                return;
+            if !is_hex_color(&color) {
+                return; // 잘못된 색 형식 무시(안전)
             }
             if let Some(p) = room.find_mut(pid) {
-                p.color_index = index;
+                p.color = Some(color);
             }
             let snap = room.snapshot();
             room.broadcast(&snap);
@@ -1136,6 +1135,7 @@ fn join_room(
         id: pid,
         nickname,
         color_index: color,
+        color: None,
         team: None,
         last_chat_ms: 0,
         ip: ip.to_string(),

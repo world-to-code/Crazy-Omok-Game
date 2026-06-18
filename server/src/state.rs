@@ -69,6 +69,8 @@ pub struct Player {
     pub id: Uuid,
     pub nickname: String,
     pub color_index: u8,
+    /// 직접 고른 커스텀 색(hex). None이면 color_index 기본색 사용.
+    pub color: Option<String>,
     /// 팀전에서의 소속 팀 (0/1), 미배정이면 None. 클래식에서는 항상 None.
     pub team: Option<u8>,
     /// 마지막 채팅 전송 시각(ms). 채팅 속도 제한용.
@@ -261,6 +263,7 @@ impl Room {
                 id: p.id,
                 nickname: p.nickname.clone(),
                 color_index: p.color_index,
+                color: p.color.clone(),
                 connected: p.connected(),
                 team: p.team,
                 ip: p.ip.clone(),

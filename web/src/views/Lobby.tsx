@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useGame } from "../state/store";
-import { TEAM_NAMES, playerColor } from "../types";
+import { TEAM_NAMES, resolvePlayerColor } from "../types";
 import PlayerList from "../components/PlayerList";
 import Chat from "../components/Chat";
 import SettingsEditor from "../components/SettingsEditor";
@@ -155,7 +155,7 @@ export default function Lobby() {
                       if (!p) return null;
                       return (
                         <li key={id}>
-                          <span className="color-dot" style={{ background: playerColor(p.color_index) }} />
+                          <span className="color-dot" style={{ background: resolvePlayerColor(p) }} />
                           {p.nickname}
                           <span className="ord-btns">
                             <button onClick={() => move(i, -1)} disabled={i === 0}>▲</button>
@@ -185,34 +185,43 @@ export default function Lobby() {
   );
 }
 
-// 내 알/돌 색 선택 팔레트 (팀전 외 게임).
+// 내 알/돌 색 자유 선택 (컬러 피커 + 빠른 추천색).
+const QUICK_COLORS = [
+  "#ef4444", "#f97316", "#f59e0b", "#eab308", "#84cc16", "#22c55e",
+  "#10b981", "#14b8a6", "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6",
+  "#a855f7", "#d946ef", "#ec4899", "#f43f5e", "#ffffff", "#94a3b8",
+];
+
 function ColorPicker() {
   const { state, send } = useGame();
   const me = state.players.find((p) => p.id === state.myId);
-  const taken = new Set(
-    state.players.filter((p) => p.id !== state.myId && p.connected).map((p) => p.color_index),
-  );
-  const PALETTE = 24;
+  const current = me ? resolvePlayerColor(me) : "#ffffff";
+  // <input type=color>는 #rrggbb만 받으므로 6자리로 정규화.
+  const inputVal = /^#[0-9a-fA-F]{6}$/.test(current) ? current : "#ffffff";
   return (
     <div className="color-picker">
-      <div className="cp-label">🎨 내 색 고르기</div>
-      <div className="cp-swatches">
-        {Array.from({ length: PALETTE }, (_, i) => {
-          const mine = me?.color_index === i;
-          const used = taken.has(i);
-          return (
+      <div className="cp-label">🎨 내 색 — 원하는 색을 직접 고르세요</div>
+      <div className="cp-row">
+        <input
+          type="color"
+          className="cp-input"
+          value={inputVal}
+          onChange={(e) => send({ type: "SetColor", color: e.target.value })}
+          title="색을 클릭해서 고르기"
+        />
+        <span className="cp-current" style={{ background: current }} />
+        <span className="cp-hex">{current}</span>
+        <div className="cp-quick">
+          {QUICK_COLORS.map((c) => (
             <button
-              key={i}
-              className={`cp-sw${mine ? " mine" : ""}`}
-              style={{ background: playerColor(i) }}
-              disabled={used && !mine}
-              title={used && !mine ? "사용 중인 색" : ""}
-              onClick={() => !used && send({ type: "SetColor", index: i })}
-            >
-              {mine ? "✓" : ""}
-            </button>
-          );
-        })}
+              key={c}
+              className="cp-sw"
+              style={{ background: c }}
+              title={c}
+              onClick={() => send({ type: "SetColor", color: c })}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

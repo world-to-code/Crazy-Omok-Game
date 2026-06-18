@@ -1,5 +1,5 @@
 import { useGame } from "../state/store";
-import { TEAM_COLORS, TEAM_NAMES, playerColor } from "../types";
+import { TEAM_COLORS, TEAM_NAMES, resolvePlayerColor } from "../types";
 
 export default function PlayerList() {
   const { state, send } = useGame();
@@ -94,7 +94,7 @@ export default function PlayerList() {
           return (
             <li key={p.id} className={`player-row${isTurn ? " turn" : ""}`}>
               {status !== "lobby" && <span className="turn-num">{i + 1}</span>}
-              <span className="color-dot" style={{ background: playerColor(p.color_index) }} />
+              <span className="color-dot" style={{ background: resolvePlayerColor(p) }} />
               <span className="player-name">
                 {p.nickname}
                 {p.id === myId && " (나)"}

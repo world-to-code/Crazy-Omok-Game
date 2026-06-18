@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useGame } from "../state/store";
-import { POWER_INFO, OBSTACLE_INFO, ITEM_INFO, playerColor } from "../types";
+import { POWER_INFO, OBSTACLE_INFO, ITEM_INFO, playerColor, resolvePlayerColor } from "../types";
 import Countdown from "../components/Countdown";
 import Chat from "../components/Chat";
 import { ensureFlickWasm, predictPath } from "../net/flickWasm";
@@ -98,9 +98,11 @@ function MyStats() {
   const me = state.marbles.find((m) => m.owner === state.myId);
   if (!me) return null;
   const info = POWER_INFO[me.power];
+  const myPlayer = state.players.find((p) => p.id === state.myId);
+  const myColor = myPlayer ? resolvePlayerColor(myPlayer) : playerColor(me.color_index);
   return (
     <div className="my-stats">
-      <span className="color-dot" style={{ background: playerColor(me.color_index) }} />
+      <span className="color-dot" style={{ background: myColor }} />
       {info && <span className="ms-power">{info.emoji} {info.name}</span>}
       <span className="ms-stat">❤️ {me.hp}/{me.max_hp}</span>
       <span className="ms-stat">⚔️ {me.atk}</span>
@@ -150,6 +152,9 @@ function Arena() {
   const displayItemsRef = useRef<typeof state.items | null>(null);
   const pickTextsRef = useRef<{ x: number; y: number; kind: string; t0: number }[]>([]);
   const trailsRef = useRef<Record<string, [number, number][]>>({});
+  // 소유자 → 표시 색(커스텀 색 반영). 렌더 루프에서 마블 색 조회용.
+  const colorByOwnerRef = useRef<Record<string, string>>({});
+  colorByOwnerRef.current = Object.fromEntries(state.players.map((p) => [p.id, resolvePlayerColor(p)]));
   const lastAimSentRef = useRef(0);
 
   useEffect(() => {
@@ -398,7 +403,7 @@ function Arena() {
               if (i === 0) ctx.moveTo(tx, ty);
               else ctx.lineTo(tx, ty);
             }
-            ctx.strokeStyle = playerColor(m.color_index);
+            ctx.strokeStyle = colorByOwnerRef.current[m.owner] || playerColor(m.color_index);
             ctx.globalAlpha = 0.35;
             ctx.lineWidth = Math.max(3, m.r * zoom * 0.7);
             ctx.lineCap = "round";
@@ -417,7 +422,9 @@ function Arena() {
         const pos = anim?.[m.owner] ?? [m.x, m.y];
         const [sx, sy] = toS(pos[0], pos[1]);
         const r = Math.max(4, m.r * zoom);
-        const col = m.alive ? playerColor(m.color_index) : "rgba(120,120,120,0.4)";
+        const col = m.alive
+          ? colorByOwnerRef.current[m.owner] || playerColor(m.color_index)
+          : "rgba(120,120,120,0.4)";
         // 글로우
         if (m.alive) {
           ctx.save();
@@ -664,7 +671,7 @@ function Arena() {
         const [dx, dy] = mc(pos[0], pos[1]);
         ctx.beginPath();
         ctx.arc(dx, dy, m.owner === currentTurnRef.current ? 4 : 3, 0, Math.PI * 2);
-        ctx.fillStyle = playerColor(m.color_index);
+        ctx.fillStyle = colorByOwnerRef.current[m.owner] || playerColor(m.color_index);
         ctx.fill();
         if (m.owner === myId) {
           ctx.strokeStyle = "#fff";

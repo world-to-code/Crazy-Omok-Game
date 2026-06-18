@@ -1038,15 +1038,13 @@ input[type="range"] {
 .scl::-webkit-scrollbar-thumb { background: #3a2f29; border-radius: 8px; }
 .scl::-webkit-scrollbar-track { background: transparent; }
 
-/* 색 선택 팔레트 */
+/* 색 자유 선택 */
 .color-picker { margin: 14px 0; }
 .cp-label { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; font-weight: 600; }
-.cp-swatches { display: flex; flex-wrap: wrap; gap: 7px; }
-.cp-sw {
-  width: 28px; height: 28px; border-radius: 8px; border: 2px solid #2c3160;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  color: #0008; font-weight: 900; font-size: 14px; padding: 0; transition: transform .1s;
-}
-.cp-sw:hover:not(:disabled) { transform: scale(1.12); }
-.cp-sw.mine { border-color: #fff; box-shadow: 0 0 0 2px var(--primary); }
-.cp-sw:disabled { opacity: 0.28; cursor: not-allowed; }
+.cp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cp-input { width: 44px; height: 34px; padding: 0; border: 2px solid #2c3160; border-radius: 8px; background: none; cursor: pointer; }
+.cp-current { width: 24px; height: 24px; border-radius: 6px; border: 1px solid #2c3160; }
+.cp-hex { font-family: monospace; font-size: 0.82rem; color: var(--muted); min-width: 64px; }
+.cp-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.cp-sw { width: 22px; height: 22px; border-radius: 6px; border: 1px solid #2c3160; cursor: pointer; padding: 0; transition: transform .1s; }
+.cp-sw:hover { transform: scale(1.18); }

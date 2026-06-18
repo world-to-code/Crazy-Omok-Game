@@ -17,9 +17,20 @@ export interface PlayerInfo {
   id: string;
   nickname: string;
   color_index: number;
+  color: string | null; // 직접 고른 커스텀 색(hex). 없으면 color_index 기본색.
   connected: boolean;
   team: number | null;
   ip: string;
+}
+
+// 플레이어의 표시 색: 커스텀 색이 있으면 그것, 없으면 인덱스 기본색.
+export function resolvePlayerColor(p: { color?: string | null; color_index: number }): string {
+  return p.color || playerColor(p.color_index);
+}
+// color_index → 표시 색 (오목 돌 등 인덱스로만 식별되는 곳에서 사용).
+export function colorForIndex(players: PlayerInfo[], idx: number): string {
+  const p = players.find((pp) => pp.color_index === idx);
+  return p ? resolvePlayerColor(p) : playerColor(idx);
 }
 
 export interface RoomSettings {
@@ -299,7 +310,7 @@ export type ClientMsg =
   | { type: "JoinTeam"; team: number | null }
   | { type: "AssignTeam"; player_id: string; team: number | null }
   | { type: "Chat"; text: string }
-  | { type: "SetColor"; index: number }
+  | { type: "SetColor"; color: string }
   | { type: "ReturnToLobby" }
   | { type: "LeaveRoom" }
   | { type: "KickPlayer"; player_id: string }

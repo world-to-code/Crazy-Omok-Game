@@ -79,8 +79,8 @@ pub enum ClientMsg {
         #[serde(default)]
         team: Option<u8>,
     },
-    /// 내 알/돌 색 선택 (색 팔레트 인덱스). 진행 중이 아닐 때만.
-    SetColor { index: u8 },
+    /// 내 알/돌 색 선택 (hex 색상, 예 "#3aa0ff"). 진행 중이 아닐 때만.
+    SetColor { color: String },
     /// 채팅.
     Chat { text: String },
     /// 게임 종료 후 방을 다시 대기(로비) 상태로 되돌림.
@@ -341,6 +341,7 @@ pub struct PlayerInfo {
     pub id: Uuid,
     pub nickname: String,
     pub color_index: u8,
+    pub color: Option<String>,
     pub connected: bool,
     pub team: Option<u8>,
     pub ip: String,

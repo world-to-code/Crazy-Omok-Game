@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useGame } from "../state/store";
-import { TEAM_COLORS, playerColor } from "../types";
+import { TEAM_COLORS, colorForIndex } from "../types";
 
 export default function Board() {
   const { state, send } = useGame();
@@ -10,7 +10,7 @@ export default function Board() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const n = settings?.board_size ?? 15;
   const isTeam = mode === "team";
-  const colorOf = (c: number) => (isTeam ? TEAM_COLORS[c] ?? "#000" : playerColor(c));
+  const colorOf = (c: number) => (isTeam ? TEAM_COLORS[c] ?? "#000" : colorForIndex(players, c));
 
   const myTeam = players.find((p) => p.id === myId)?.team ?? null;
   const myTurn =
