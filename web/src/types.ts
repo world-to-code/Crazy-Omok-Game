@@ -224,7 +224,7 @@ export type ClientMsg =
       mode: string;
       game: string;
     }
-  | { type: "JoinByCode"; code: string; nickname: string }
+  | { type: "JoinByCode"; code: string; nickname: string; password: string | null }
   | { type: "JoinBySearch"; code: string; nickname: string; password: string | null }
   | { type: "ListRooms"; query: string | null }
   | { type: "Reconnect"; code: string; player_id: string }

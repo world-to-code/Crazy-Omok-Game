@@ -1,7 +1,9 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
   type ReactNode,
@@ -415,10 +417,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
   // 재접속(Reconnect) 시도 중인지. 실패하면 조용히 홈으로 보내기 위함.
   const reconnectPending = useRef(false);
 
-  const send = (m: ClientMsg) => {
+  const send = useCallback((m: ClientMsg) => {
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m));
-  };
+  }, []);
 
   useEffect(() => {
     let stopped = false;
@@ -514,22 +516,23 @@ export function GameProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const leave = () => {
+  const leave = useCallback(() => {
     send({ type: "LeaveRoom" });
     clearSession();
     dispatch({ kind: "reset" });
-  };
+  }, [send]);
 
-  const ctx: Ctx = {
-    state,
-    send,
-    setScreen: (screen) => dispatch({ kind: "screen", screen }),
-    selectGame: (game) => dispatch({ kind: "selectGame", game }),
-    applyFlick: () => dispatch({ kind: "flickApply" }),
-    returnToLobby: () => send({ type: "ReturnToLobby" }),
-    clearError: () => dispatch({ kind: "clearError" }),
-    leave,
-  };
+  // dispatch는 안정적이므로 콜백들도 안정적. ctx는 state가 바뀔 때만 새로 만든다.
+  const setScreen = useCallback((screen: Screen) => dispatch({ kind: "screen", screen }), []);
+  const selectGame = useCallback((game: "omok" | "flick") => dispatch({ kind: "selectGame", game }), []);
+  const applyFlick = useCallback(() => dispatch({ kind: "flickApply" }), []);
+  const returnToLobby = useCallback(() => send({ type: "ReturnToLobby" }), [send]);
+  const clearError = useCallback(() => dispatch({ kind: "clearError" }), []);
+
+  const ctx: Ctx = useMemo(
+    () => ({ state, send, setScreen, selectGame, applyFlick, returnToLobby, clearError, leave }),
+    [state, send, setScreen, selectGame, applyFlick, returnToLobby, clearError, leave],
+  );
 
   return <GameContext.Provider value={ctx}>{children}</GameContext.Provider>;
 }

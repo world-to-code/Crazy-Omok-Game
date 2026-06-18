@@ -53,9 +53,11 @@ export default function Board() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = dim * dpr;
-    canvas.height = dim * dpr;
+    // 브라우저 canvas 최대 크기(~16384px) 초과 시 빈 화면이 되므로 backing store를 제한.
+    const MAX_CANVAS = 8192;
+    const dpr = Math.min(window.devicePixelRatio || 1, MAX_CANVAS / dim);
+    canvas.width = Math.round(dim * dpr);
+    canvas.height = Math.round(dim * dpr);
     canvas.style.width = `${dim}px`;
     canvas.style.height = `${dim}px`;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

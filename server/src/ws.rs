@@ -172,6 +172,7 @@ fn handle_client_msg(
             let nickname = trim_len(nickname, MAX_NICKNAME, "익명");
             let password = password.filter(|p| !p.is_empty());
 
+            detach_prev(state, session, conn_id, None);
             let mut rooms = state.rooms();
             if rooms.len() >= MAX_ROOMS {
                 err(tx, "서버에 방이 너무 많습니다. 잠시 후 다시 시도하세요");
@@ -229,8 +230,13 @@ fn handle_client_msg(
             }
         }
 
-        ClientMsg::JoinByCode { code, nickname } => {
-            join_room(state, tx, session, &code, nickname, None, false, ip, conn_id);
+        ClientMsg::JoinByCode {
+            code,
+            nickname,
+            password,
+        } => {
+            detach_prev(state, session, conn_id, None);
+            join_room(state, tx, session, &code, nickname, password, ip, conn_id);
         }
 
         ClientMsg::JoinBySearch {
@@ -238,10 +244,12 @@ fn handle_client_msg(
             nickname,
             password,
         } => {
-            join_room(state, tx, session, &code, nickname, password, true, ip, conn_id);
+            detach_prev(state, session, conn_id, None);
+            join_room(state, tx, session, &code, nickname, password, ip, conn_id);
         }
 
         ClientMsg::Reconnect { code, player_id } => {
+            detach_prev(state, session, conn_id, Some((code.as_str(), player_id)));
             let mut rooms = state.rooms();
             let Some(room) = rooms.get_mut(&code) else {
                 err(tx, "방을 찾을 수 없습니다");
@@ -909,7 +917,6 @@ fn join_room(
     code: &str,
     nickname: String,
     password: Option<String>,
-    require_password: bool,
     ip: &str,
     conn_id: u64,
 ) {
@@ -919,12 +926,18 @@ fn join_room(
         err(tx, "방을 찾을 수 없습니다");
         return;
     };
-    if require_password {
-        if let Some(real) = &room.password {
-            if password.as_deref() != Some(real.as_str()) {
-                err(tx, "비밀번호가 올바르지 않습니다");
-                return;
-            }
+    // 비밀번호가 설정된 방은 입장 경로와 무관하게 항상 검증(코드 입장 포함).
+    if let Some(real) = &room.password {
+        if password.as_deref() != Some(real.as_str()) {
+            err(
+                tx,
+                if password.is_none() {
+                    "비밀번호가 필요합니다"
+                } else {
+                    "비밀번호가 올바르지 않습니다"
+                },
+            );
+            return;
         }
     }
     if room.status == RoomStatus::Playing {
@@ -955,6 +968,23 @@ fn join_room(
     });
     let snap = room.snapshot();
     room.broadcast(&snap);
+}
+
+/// 이 소켓이 이미 다른 자리에 있었다면 그 연결을 먼저 정리한다(유령 플레이어/방 누수 방지).
+/// keep == 현재 들어가려는 자리와 동일하면(같은 자리 재접속) 정리하지 않는다.
+fn detach_prev(
+    state: &Arc<AppState>,
+    session: &mut Option<(String, Uuid)>,
+    conn_id: u64,
+    keep: Option<(&str, Uuid)>,
+) {
+    if let Some((old_code, old_pid)) = session.clone() {
+        if keep == Some((old_code.as_str(), old_pid)) {
+            return;
+        }
+        handle_leave(state, &old_code, old_pid, LeaveKind::Conn(conn_id));
+        *session = None;
+    }
 }
 
 /// 나가기/연결 종료 공용 처리.

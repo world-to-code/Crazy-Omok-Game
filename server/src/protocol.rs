@@ -23,8 +23,13 @@ pub enum ClientMsg {
         #[serde(default)]
         game: Option<String>,
     },
-    /// 방 코드로 입장 (비밀번호 불필요).
-    JoinByCode { code: String, nickname: String },
+    /// 방 코드로 입장 (비번방이면 password 필요).
+    JoinByCode {
+        code: String,
+        nickname: String,
+        #[serde(default)]
+        password: Option<String>,
+    },
     /// 방 찾기로 입장 (비밀번호 필요시 검증).
     JoinBySearch {
         code: String,

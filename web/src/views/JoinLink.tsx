@@ -10,7 +10,7 @@ export default function JoinLink() {
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!code) return;
-    send({ type: "JoinByCode", code, nickname: nickname.trim() || "게스트" });
+    send({ type: "JoinByCode", code, nickname: nickname.trim() || "게스트", password: null });
   }
 
   return (
