@@ -870,10 +870,13 @@ impl FlickGame {
             self.push_event(vx, vy, "shield", 0, owner, hp);
             return;
         }
-        // 가시: 피해를 입힌 공격자에게 반동 피해 (단, 발사자는 무피해)
-        if self.marbles[v].power == "spikes" && self.marbles[a].owner != shooter {
+        // 가시: 부딪힌 공격자에게 반동 피해 (가시 능력의 핵심이므로 발사자도 반동을 받음).
+        if self.marbles[v].power == "spikes" {
             let recoil = (dmg / 3).max(1);
             self.apply_hp(a, -recoil);
+            let am = &self.marbles[a];
+            let (ax, ay, ao, ah) = (am.x, am.y, am.owner, am.hp);
+            self.push_event(ax, ay, "reflect", recoil, ao, ah);
         }
         self.apply_hp(v, -dmg);
         let mb = &self.marbles[v];
@@ -881,7 +884,13 @@ impl FlickGame {
         self.push_event(vx, vy, if dead { "ko" } else { "hit" }, dmg, owner, hp);
         // 흡혈: 공격자가 입힌 피해의 일부 회복 (능력 또는 아이템 버프)
         if self.marbles[a].power == "lifesteal" || (is_shooter && self.shot_lifesteal) {
-            self.apply_hp(a, dmg / 2);
+            let heal = dmg / 2;
+            if heal > 0 {
+                self.apply_hp(a, heal);
+                let am = &self.marbles[a];
+                let (ax, ay, ao, ah) = (am.x, am.y, am.owner, am.hp);
+                self.push_event(ax, ay, "heal", heal, ao, ah);
+            }
         }
         let _ = &mut dmg;
     }

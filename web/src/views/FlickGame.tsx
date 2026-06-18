@@ -140,8 +140,10 @@ function Arena() {
   const animRef = useRef<Record<string, [number, number]> | null>(null);
   const camRef = useRef<{ x: number; y: number } | null>(null);
   const shakeRef = useRef<{ until: number; mag: number }>({ until: 0, mag: 0 });
-  const particlesRef = useRef<{ x: number; y: number; kind: string; t0: number }[]>([]);
-  const dmgTextsRef = useRef<{ x: number; y: number; amount: number; ko: boolean; t0: number }[]>([]);
+  const particlesRef = useRef<{ x: number; y: number; kind: string; amount: number; t0: number }[]>([]);
+  const dmgTextsRef = useRef<
+    { x: number; y: number; amount: number; ko: boolean; heal: boolean; t0: number }[]
+  >([]);
   // 재생 중 즉시 반영할 체력(이벤트 시점마다 갱신). 재생 끝나면 비움.
   const displayHpRef = useRef<Record<string, number>>({});
   // 재생 중 표시할 아이템(획득하면 제거). null이면 state.items 사용.
@@ -218,13 +220,23 @@ function Arena() {
         }
         return;
       }
-      particlesRef.current.push({ x, y, kind, t0: now });
-      if (amount > 0) dmgTextsRef.current.push({ x, y, amount, ko: kind === "ko", t0: now });
-      const strong = kind === "explode" || kind === "ko";
-      shakeRef.current = {
-        until: now + (strong ? 460 : 260),
-        mag: strong ? 16 : kind === "spike" ? 10 : 7,
-      };
+      particlesRef.current.push({ x, y, kind, amount, t0: now });
+      if (amount > 0) {
+        if (kind === "heal") dmgTextsRef.current.push({ x, y, amount, ko: false, heal: true, t0: now });
+        else dmgTextsRef.current.push({ x, y, amount, ko: kind === "ko", heal: false, t0: now });
+      }
+      // 화면 흔들림: 능력/피해량에 따라 차등 (회복은 없음)
+      const big = kind === "explode" || kind === "ko";
+      const mag = big
+        ? 18
+        : kind === "shield"
+          ? 6
+          : kind === "spike" || kind === "reflect"
+            ? 10
+            : kind === "heal"
+              ? 0
+              : Math.min(15, 6 + amount * 0.3); // 일반 타격: 큰 피해(헤비 등)일수록 크게
+      if (mag > 0) shakeRef.current = { until: now + (big ? 470 : 260), mag };
     };
 
     const step = () => {
@@ -541,13 +553,14 @@ function Arena() {
       const nowp = performance.now();
       const live: typeof particlesRef.current = [];
       for (const pt of particlesRef.current) {
-        const life = pt.kind === "explode" ? 600 : pt.kind === "ko" ? 750 : pt.kind === "spike" ? 420 : 340;
+        const life =
+          pt.kind === "explode" ? 650 : pt.kind === "ko" ? 800 : pt.kind === "heal" ? 700 : pt.kind === "spike" || pt.kind === "reflect" ? 430 : pt.kind === "shield" ? 520 : 340;
         const age = nowp - pt.t0;
         if (age > life) continue;
         live.push(pt);
         const t = age / life;
         const [px, py] = toS(pt.x, pt.y);
-        drawParticle(ctx, pt.kind, px, py, t, zoom);
+        drawParticle(ctx, pt.kind, px, py, t, zoom, pt.amount);
       }
       particlesRef.current = live;
 
@@ -568,6 +581,14 @@ function Arena() {
           ctx.font = "bold 22px sans-serif";
           ctx.fillStyle = "#fca5a5";
           ctx.fillText(`-${dt.amount} 처치!`, px, py - 28 - t * 36);
+        } else if (dt.heal) {
+          ctx.font = "bold 17px sans-serif";
+          ctx.fillStyle = "#86efac";
+          ctx.strokeStyle = "rgba(0,0,0,0.6)";
+          ctx.lineWidth = 3;
+          const ty = py - 24 - t * 34;
+          ctx.strokeText(`+${dt.amount}`, px, ty);
+          ctx.fillText(`+${dt.amount}`, px, ty);
         } else {
           ctx.font = "bold 18px sans-serif";
           ctx.fillStyle = "#fde047";
@@ -988,10 +1009,57 @@ function drawObstacle(
   }
 }
 
-// 충돌/효과 파티클 그리기. t: 0~1 진행도.
-function drawParticle(ctx: CanvasRenderingContext2D, kind: string, x: number, y: number, t: number, zoom: number) {
+// 충돌/효과 파티클 그리기. t: 0~1 진행도, amount: 피해/회복량(세기 스케일).
+function drawParticle(
+  ctx: CanvasRenderingContext2D,
+  kind: string,
+  x: number,
+  y: number,
+  t: number,
+  zoom: number,
+  amount: number,
+) {
   const fade = 1 - t;
   ctx.save();
+  if (kind === "shield") {
+    // 보호막: 청록 동심원 + 육각 방패 글로우
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = "#7dd3fc";
+    for (let k = 0; k < 2; k++) {
+      ctx.lineWidth = 3 * fade;
+      ctx.beginPath();
+      ctx.arc(x, y, (16 + k * 12) * zoom * (0.6 + t), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = fade * 0.5;
+    ctx.fillStyle = "#bae6fd";
+    ctx.font = `${22 * zoom}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("🛡", x, y);
+    ctx.restore();
+    return;
+  }
+  if (kind === "heal") {
+    // 흡혈/회복: 초록 위로 솟는 스파클 + 링
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = "#86efac";
+    ctx.lineWidth = 2.5 * fade;
+    ctx.beginPath();
+    ctx.arc(x, y, 26 * zoom * t, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#4ade80";
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + t;
+      const rr = 14 * zoom * (0.4 + t);
+      ctx.globalAlpha = fade * 0.9;
+      ctx.beginPath();
+      ctx.arc(x + Math.cos(a) * rr, y - t * 26 * zoom + Math.sin(a) * rr * 0.4, 2.5 * zoom * fade + 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    return;
+  }
   if (kind === "explode" || kind === "ko") {
     const big = kind === "ko";
     const maxR = (big ? 160 : 110) * zoom;
@@ -1022,29 +1090,31 @@ function drawParticle(ctx: CanvasRenderingContext2D, kind: string, x: number, y:
       ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1);
       ctx.stroke();
     }
-  } else if (kind === "spike") {
+  } else if (kind === "spike" || kind === "reflect") {
+    // 가시/반동: 뾰족한 가시 폭발 (반동은 초록빛)
     ctx.globalAlpha = fade;
-    ctx.strokeStyle = "#f87171";
+    ctx.strokeStyle = kind === "reflect" ? "#bef264" : "#f87171";
     ctx.lineWidth = 2.5;
-    const r = 26 * zoom * (0.5 + t);
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
+    const r = 28 * zoom * (0.5 + t);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + (kind === "reflect" ? t : 0);
       ctx.beginPath();
-      ctx.moveTo(x, y);
+      ctx.moveTo(x + Math.cos(a) * r * 0.3, y + Math.sin(a) * r * 0.3);
       ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
       ctx.stroke();
     }
   } else {
-    // hit: 노란 플래시 + 작은 링
+    // 일반 타격: 노란 플래시 + 링 (피해량이 클수록 크게 — 헤비/관통 강타 강조)
+    const scale = Math.min(2.2, 0.8 + amount * 0.05);
     ctx.globalAlpha = fade;
     ctx.beginPath();
-    ctx.arc(x, y, 30 * zoom * t, 0, Math.PI * 2);
+    ctx.arc(x, y, 30 * zoom * t * scale, 0, Math.PI * 2);
     ctx.strokeStyle = "#fde047";
-    ctx.lineWidth = 3 * fade;
+    ctx.lineWidth = 3 * fade * scale;
     ctx.stroke();
     ctx.globalAlpha = fade * 0.7;
     ctx.beginPath();
-    ctx.arc(x, y, 10 * zoom * (1 - t), 0, Math.PI * 2);
+    ctx.arc(x, y, 12 * zoom * (1 - t) * scale, 0, Math.PI * 2);
     ctx.fillStyle = "#fef08a";
     ctx.fill();
   }
