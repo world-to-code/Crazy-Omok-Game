@@ -11,6 +11,18 @@ export default function InviteLink() {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    // 이미 공개 도메인으로 접속 중이면 그 주소를 그대로 사용(도메인 변경에 자동 대응).
+    // 서버가 알려주는 호스트(OMOK_PUBLIC_HOST)는 localhost/LAN 접속일 때만 덮어쓴다.
+    const h = location.hostname;
+    const isLan =
+      h === "localhost" ||
+      h === "0.0.0.0" ||
+      /^127\./.test(h) ||
+      /^10\./.test(h) ||
+      /^192\.168\./.test(h) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(h);
+    if (!isLan) return; // 공개 도메인 → location.origin 유지
+
     let cancelled = false;
     fetch("/api/ip")
       .then((r) => r.json())

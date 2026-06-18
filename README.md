@@ -98,8 +98,8 @@ EC2 전송 → systemd 서비스(`omok`) 재시작까지 처리합니다.
 - systemd 유닛: `deploy/omok.service`
 - **최초 1회 서버 설정 + 필요한 GitHub Secrets 는 [`deploy/SETUP.md`](deploy/SETUP.md) 참고**
 
-배포 후 접속: `http://omok.ascode.click/` (포트 80). 로비 초대 링크는
-`http://omok.ascode.click/?join=<코드>` 로 생성됩니다 (코드·비밀번호 없이 바로 참가).
+배포 후 접속: `http://minigame.ascode.click/` (포트 80). 로비 초대 링크는
+`http://minigame.ascode.click/?join=<코드>` 로 생성됩니다 (코드·비밀번호 없이 바로 참가).
 
 > 빌드는 **musl 정적 링크**라 glibc 버전과 무관하게 어떤 리눅스에서도 실행됩니다.
 > 80 포트는 systemd `AmbientCapabilities=CAP_NET_BIND_SERVICE` 로 일반 사용자가 바인딩합니다.

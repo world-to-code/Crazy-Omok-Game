@@ -17,7 +17,7 @@
 
 | 이름 | 값 | 비고 |
 | --- | --- | --- |
-| `DEPLOY_HOST` | EC2 공인 IP 또는 `omok.ascode.click` | |
+| `DEPLOY_HOST` | EC2 공인 IP 또는 `minigame.ascode.click` | |
 | `DEPLOY_USER` | `ubuntu` (Amazon Linux 면 `ec2-user`) | |
 | `DEPLOY_SSH_KEY` | EC2 접속용 **개인키 전체 내용**(`-----BEGIN ...`) | |
 | `DEPLOY_PORT` | `22` | 생략 가능(기본 22) |
@@ -36,7 +36,7 @@ sudo chown -R $USER:$USER /opt/omok     # 배포 사용자가 파일을 쓸 수 
 cat > /opt/omok/.env <<'EOF'
 OMOK_BIND=0.0.0.0
 OMOK_PORT=80
-OMOK_PUBLIC_HOST=omok.ascode.click
+OMOK_PUBLIC_HOST=minigame.ascode.click
 OMOK_PUBLIC_PORT=80
 OMOK_WEB_DIR=/opt/omok/web/dist
 EOF
@@ -73,7 +73,7 @@ sudo chmod 440 /etc/sudoers.d/omok
 ## 6. 첫 배포
 
 `main` 에 push 하거나 GitHub Actions 에서 **Run workflow(workflow_dispatch)** 실행.
-끝나면 `http://omok.ascode.click/` 로 접속됩니다.
+끝나면 `http://minigame.ascode.click/` 로 접속됩니다.
 
 ```bash
 # 서버에서 상태/로그 확인
