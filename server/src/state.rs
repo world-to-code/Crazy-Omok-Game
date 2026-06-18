@@ -116,6 +116,8 @@ pub struct Room {
     pub current_team: u8,
     /// (팀전) 현재 팀 차례의 투표: player_id -> (x, y).
     pub votes: HashMap<Uuid, (u16, u16)>,
+    /// 방에 접속자가 0이 된 시각(ms). 청소 태스크가 유예 후 방을 제거하는 데 사용.
+    pub empty_since: Option<u64>,
 }
 
 impl Room {

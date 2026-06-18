@@ -223,6 +223,7 @@ fn handle_client_msg(
                 deadline_ms: None,
                 current_team: 0,
                 votes: std::collections::HashMap::new(),
+                empty_since: None,
             };
             rooms.insert(code.clone(), room);
             *session = Some((code.clone(), pid));
@@ -937,6 +938,33 @@ fn start_flick_first_turn(state: &Arc<AppState>, room: &mut Room, code: &str) {
         room.broadcast(&snap);
         spawn_flick_timer(state.clone(), code.to_string(), generation, limit);
     }
+}
+
+/// 주기적 청소: 접속자가 없는 방을 유예 시간 후 제거(메모리 누수 방지 백스톱).
+/// 명시적 나가기/끊김 유예 경로가 1차로 처리하지만, 누락된 방까지 확실히 회수한다.
+pub fn spawn_room_janitor(state: Arc<AppState>) {
+    tokio::spawn(async move {
+        let grace_ms = (DISCONNECT_GRACE_SECS + 8) * 1000;
+        loop {
+            tokio::time::sleep(Duration::from_secs(15)).await;
+            let now = now_ms();
+            let mut rooms = state.rooms();
+            rooms.retain(|_, room| {
+                if room.players.iter().any(|p| p.connected()) {
+                    room.empty_since = None;
+                    true
+                } else {
+                    match room.empty_since {
+                        None => {
+                            room.empty_since = Some(now);
+                            true
+                        }
+                        Some(t) => now.saturating_sub(t) < grace_ms, // 유예 내면 유지
+                    }
+                }
+            });
+        }
+    });
 }
 
 /// (체스) 현재 단계 투표를 확정하고 다음 단계/턴으로 진행.

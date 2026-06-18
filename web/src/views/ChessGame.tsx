@@ -44,9 +44,13 @@ export default function ChessGame() {
   }
 
   // ===== 보드 =====
+  // 내 팀 기물이 아래쪽에 보이도록: 흑 팀이면 180° 회전(흑이 아래).
+  const flip = myTeam === 1;
   const cells = [];
-  for (let r = 0; r < 8; r++) {
-    for (let f = 0; f < 8; f++) {
+  for (let dr = 0; dr < 8; dr++) {
+    for (let df = 0; df < 8; df++) {
+      const r = flip ? 7 - dr : dr;
+      const f = flip ? 7 - df : df;
       const k = `${r},${f}`;
       const piece = c.board[r]?.[f] ?? null;
       const isLight = (r + f) % 2 === 0;

@@ -35,6 +35,8 @@ async fn main() {
         .unwrap_or(port);
 
     let state = Arc::new(AppState::new(public_host.clone(), public_port));
+    // 빈 방을 주기적으로 회수(메모리 절약).
+    ws::spawn_room_janitor(state.clone());
 
     // 빌드된 프론트 위치 (기본 ../web/dist, 환경변수로 변경 가능).
     let dist = env_or("OMOK_WEB_DIR", "../web/dist");
