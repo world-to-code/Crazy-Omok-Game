@@ -97,6 +97,10 @@ jobs:
             rm -rf "$APP_DIR/web/dist"
             cp -r /tmp/omok-deploy/web/dist "$APP_DIR/web/dist"
 
+            # 부팅 시 자동시작 등록(enable). 인스턴스 재시작 후에도 자동 기동.
+            # (sudoers 에 enable 권한이 없으면 무시되고 배포는 계속됨)
+            sudo systemctl enable omok 2>/dev/null || true
+
             # 서비스 재시작 (sudoers NOPASSWD 필요)
             sudo systemctl reset-failed omok || true
             sudo systemctl restart omok

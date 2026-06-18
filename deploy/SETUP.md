@@ -64,7 +64,7 @@ sudo systemctl enable omok
 CI 가 비밀번호 없이 서비스를 재시작할 수 있어야 합니다.
 
 ```bash
-echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart omok, /usr/bin/systemctl start omok, /usr/bin/systemctl stop omok, /usr/bin/systemctl reset-failed omok, /usr/bin/systemctl is-active omok" | sudo tee /etc/sudoers.d/omok
+echo "$USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart omok, /usr/bin/systemctl start omok, /usr/bin/systemctl stop omok, /usr/bin/systemctl reset-failed omok, /usr/bin/systemctl is-active omok, /usr/bin/systemctl enable omok" | sudo tee /etc/sudoers.d/omok
 sudo chmod 440 /etc/sudoers.d/omok
 ```
 
