@@ -74,7 +74,7 @@ export default function FindRooms() {
                     : r.mode === "team"
                       ? `팀전 · ${r.players}명`
                       : `${r.players}/${r.max_players}명 · ${r.board_size}×${r.board_size} · ${r.win_length}목`}{" "}
-                  · {r.status === "lobby" ? "대기중" : r.status === "playing" ? "게임중" : "종료"}
+                  · {r.status === "playing" ? "게임중" : "대기중"}
                 </span>
               </div>
             );
@@ -97,11 +97,11 @@ export default function FindRooms() {
           )}
           <button
             className="primary"
-            disabled={selected.status !== "lobby" || selected.players >= selected.max_players}
+            disabled={selected.status === "playing" || selected.players >= selected.max_players}
             onClick={join}
           >
-            {selected.status !== "lobby"
-              ? "입장 불가 (대기중 아님)"
+            {selected.status === "playing"
+              ? "입장 불가 (게임 진행 중)"
               : selected.players >= selected.max_players
                 ? "방이 가득 참"
                 : "입장"}
