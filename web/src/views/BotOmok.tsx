@@ -20,6 +20,16 @@ const LEVEL_NAME = ["쉬움", "중간", "어려움", "헬"];
 const BLACK = 1;
 const WHITE = 2;
 
+// 좌표: 열 A~O(왼→오), 행 1~15(위→아래). 예) 중앙 = H8.
+const COL = "ABCDEFGHIJKLMNO";
+const omokCoord = (idx: number) => `${COL[idx % N]}${Math.floor(idx / N) + 1}`;
+
+interface OmokMove {
+  n: number;
+  color: number; // 1 흑 · 2 백
+  idx: number;
+}
+
 // (idx에 color를 둔 직후) 그 돌을 지나는 WIN목 라인 인덱스. 없으면 null.
 function winLineThrough(board: number[], idx: number, color: number): number[] | null {
   const r = Math.floor(idx / N);
@@ -66,7 +76,9 @@ export default function BotOmok() {
   const [ready, setReady] = useState(isAiReady());
   const [forbidden, setForbidden] = useState<Set<number>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
+  const [moves, setMoves] = useState<OmokMove[]>([]);
   const botBusy = useRef(false);
+  const logRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     ensureAiWasm().then(() => setReady(true));
@@ -75,12 +87,18 @@ export default function BotOmok() {
   // 방을 나가거나 페이지를 닫으면 AI 워커를 종료(백그라운드 계산 잔존 방지).
   useEffect(() => () => terminateAiWorker(), []);
 
+  // 기보 로그는 새 수가 추가되면 맨 아래로 자동 스크롤.
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [moves.length]);
+
   const place = useCallback(
     (cur: number[], idx: number, color: number) => {
       const nb = cur.slice();
       nb[idx] = color;
       setBoard(nb);
       setLast(idx);
+      setMoves((m) => [...m, { n: m.length + 1, color, idx }]);
       const line = winLineThrough(nb, idx, color);
       if (line) {
         setWinner(color);
@@ -157,6 +175,7 @@ export default function BotOmok() {
     setThinking(false);
     setForbidden(new Set());
     setNotice(null);
+    setMoves([]);
     // bot 선공이면 다음 effect에서 자동 착수.
   }
 
@@ -177,8 +196,12 @@ export default function BotOmok() {
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, [vw, vh, winner]);
-  const avail = availH > 0 ? availH : vh - 160;
+  // 보드 아래 '마지막 수' 요약(~34px)만큼 빼서 세로 스크롤이 안 생기게.
+  const avail = (availH > 0 ? availH : vh - 160) - 34;
   const boardSize = Math.max(240, Math.min(Math.round(vw * 0.7), Math.round(avail)));
+  const gap = (vw - boardSize) / 2;
+  const showLog = gap >= 200; // 오른쪽 여백에 기보 패널 둘 공간
+  const lastMv = moves[moves.length - 1];
 
   return (
     <div className="game" style={{ width: "100%", marginLeft: 0 }}>
@@ -228,26 +251,95 @@ export default function BotOmok() {
         </div>
       )}
 
-      {/* 풀블리드: 뷰포트 전체 폭 컨테이너를 화면 정중앙에 두고 그 안에서 보드를 중앙 정렬 */}
+      {/* 풀블리드: 뷰포트 전체 폭 컨테이너를 화면 정중앙에 두고 그 안에서 보드를 중앙 정렬.
+          오른쪽 여백에 상세 기보 로그. */}
       <div
         ref={boardWrapRef}
         style={{
           width: `${vw}px`,
           marginLeft: `calc(50% - ${vw / 2}px)`,
           marginTop: 12,
+          position: "relative",
           display: "flex",
           justifyContent: "center",
         }}
       >
-        <BotGoban
-          size={boardSize}
-          forbidden={forbidden}
-          board={board}
-          last={last}
-          winLine={winLineSet}
-          clickable={myTurn}
-          onCell={onCellClick}
-        />
+        {showLog && (
+          <aside
+            style={{
+              position: "absolute",
+              right: 16,
+              top: 0,
+              width: 234,
+              maxHeight: boardSize,
+              display: "flex",
+              flexDirection: "column",
+              background: "#1c1512",
+              border: "1px solid #2f251f",
+              borderRadius: 14,
+            }}
+          >
+            <div style={{ padding: "12px 14px 8px", borderBottom: "1px solid #2f251f", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span style={{ fontSize: 11, letterSpacing: ".15em", color: "#8a7c6c", fontFamily: "monospace" }}>기보</span>
+              <span style={{ fontFamily: "monospace", fontSize: 11, color: "#e0a458" }}>총 {moves.length}수</span>
+            </div>
+            <div ref={logRef} className="scl" style={{ overflowY: "auto", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+              {moves.length === 0 && <div style={{ color: "#6b5d4f", fontSize: 12, padding: 8 }}>아직 둔 수가 없습니다</div>}
+              {moves.map((m) => {
+                const isHuman = m.color === human;
+                const won = winner !== 0 && winner !== 3 && m.n === moves.length && m.color === winner;
+                return (
+                  <div
+                    key={m.n}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "4px 6px",
+                      borderRadius: 6,
+                      fontSize: 13,
+                      background: m.n === moves.length ? "rgba(224,164,88,.14)" : "transparent",
+                    }}
+                  >
+                    <span style={{ width: 24, textAlign: "right", color: "#6b5d4f", fontFamily: "monospace" }}>{m.n}</span>
+                    <span style={{ width: 12, height: 12, borderRadius: "50%", background: m.color === BLACK ? "#111" : "#fafafa", border: "1px solid #6b574a", flexShrink: 0 }} />
+                    <span style={{ color: "#c9b89f", minWidth: 48 }}>
+                      {m.color === BLACK ? "흑" : "백"} {isHuman ? "(나)" : "(봇)"}
+                    </span>
+                    <span style={{ fontFamily: "monospace", color: "#e0a458", fontWeight: 700 }}>{omokCoord(m.idx)}</span>
+                    {won && <span style={{ marginLeft: "auto", color: "#ffd60a", fontWeight: 800 }}>승!</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <BotGoban
+            size={boardSize}
+            forbidden={forbidden}
+            board={board}
+            last={last}
+            winLine={winLineSet}
+            clickable={myTurn}
+            onCell={onCellClick}
+          />
+          {/* 보드 아래 마지막 수 요약 */}
+          <div style={{ marginTop: 8, fontSize: 14, color: "#c9b89f", display: "flex", alignItems: "center", gap: 8, minHeight: 22 }}>
+            {lastMv ? (
+              <>
+                <span style={{ color: "#8a7c6c" }}>마지막 수:</span>
+                <span style={{ width: 14, height: 14, borderRadius: "50%", background: lastMv.color === BLACK ? "#111" : "#fafafa", border: "1px solid #888", display: "inline-block" }} />
+                <span style={{ fontWeight: 600 }}>{lastMv.color === BLACK ? "흑" : "백"}</span>
+                <span style={{ fontFamily: "monospace", color: "#e0a458", fontWeight: 700 }}>{omokCoord(lastMv.idx)}</span>
+                <span style={{ color: "#8a7c6c", fontSize: 12 }}>· {moves.length}수째</span>
+              </>
+            ) : (
+              <span style={{ color: "#6b5d4f" }}>빈 칸을 클릭해 두세요</span>
+            )}
+          </div>
+        </div>
       </div>
 
       {winner !== 0 && (
@@ -336,6 +428,16 @@ function BotGoban({
       ctx.beginPath();
       ctx.arc(px(c), px(r), 3, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // 좌표 라벨: 아래에 열(A~O), 왼쪽에 행(1~15).
+    ctx.fillStyle = "rgba(70,45,10,0.8)";
+    ctx.font = `${Math.max(9, Math.round(cell * 0.32))}px monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (let i = 0; i < N; i++) {
+      ctx.fillText(COL[i], px(i), px(N - 1) + margin * 0.55); // 열 문자(아래)
+      ctx.fillText(String(i + 1), margin * 0.45, px(i)); // 행 숫자(왼쪽)
     }
 
     const rad = cell * 0.44;
