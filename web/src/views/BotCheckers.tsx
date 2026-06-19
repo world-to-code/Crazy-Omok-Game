@@ -16,6 +16,7 @@ import {
 import { CHESS_FILES } from "../types";
 import { useViewportSize } from "../bot/useViewport";
 import { playMove, playCapture, playWin, playLose, playDraw } from "../bot/sound";
+import { RulesPanel } from "../bot/GamePanels";
 import SoundToggle from "../bot/SoundToggle";
 import Countdown from "../components/Countdown";
 
@@ -163,7 +164,7 @@ export default function BotCheckers() {
   const avail = (availH > 0 ? availH : vh - 160) - 40;
   const boardSize = Math.max(240, Math.min(Math.round(vw * 0.7), Math.round(avail)));
   const gap = (vw - boardSize) / 2;
-  const showLog = gap >= 210;
+  const showSide = gap >= 210;
   const last = moves[moves.length - 1];
 
   const cells = [];
@@ -266,9 +267,23 @@ export default function BotCheckers() {
         ref={boardWrapRef}
         style={{ width: `${vw}px`, marginLeft: `calc(50% - ${vw / 2}px)`, marginTop: 12, position: "relative", display: "flex", justifyContent: "center" }}
       >
-        {showLog && (
-          <aside style={{ position: "absolute", right: 16, top: 0, width: 244, maxHeight: boardSize, display: "flex", flexDirection: "column", background: "#1c1512", border: "1px solid #2f251f", borderRadius: 14 }}>
-            <div style={{ padding: "12px 14px 8px", borderBottom: "1px solid #2f251f", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        {showSide && (
+          <aside style={{ position: "absolute", left: 16, top: 0, width: 244, maxHeight: boardSize, display: "flex", flexDirection: "column", background: "#1c1512", border: "1px solid #2f251f", borderRadius: 14 }}>
+            {/* 마지막 수 */}
+            <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid #2f251f" }}>
+              <div style={{ fontSize: 11, letterSpacing: ".15em", color: "#8a7c6c", fontFamily: "monospace", marginBottom: 8 }}>마지막 수</div>
+              {last ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ width: 14, height: 14, borderRadius: "50%", background: last.color === "b" ? "#141414" : "#f0ead8", border: "1px solid #888", display: "inline-block" }} />
+                  <span style={{ fontFamily: "monospace", color: "#e0a458", fontWeight: 700, fontSize: 15 }}>{sq(...last.from)}→{sq(...last.to)}</span>
+                  {last.caps > 0 && <span style={{ color: "#fb7185", fontSize: 13 }}>{last.caps}개 잡음</span>}
+                  {last.promoted && <span style={{ color: "#ffd24a", fontSize: 13 }}>킹 ♛</span>}
+                </div>
+              ) : (
+                <div style={{ color: "#6b5d4f", fontSize: 13 }}>내 말을 클릭해 두세요</div>
+              )}
+            </div>
+            <div style={{ padding: "10px 14px 6px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <span style={{ fontSize: 11, letterSpacing: ".15em", color: "#8a7c6c", fontFamily: "monospace" }}>기보</span>
               <span style={{ fontFamily: "monospace", fontSize: 11, color: "#e0a458" }}>총 {moves.length}수</span>
             </div>
@@ -293,6 +308,8 @@ export default function BotCheckers() {
           </aside>
         )}
 
+        {showSide && <RulesPanel game="checkers" maxHeight={boardSize} />}
+
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
           <div
             style={{
@@ -308,7 +325,7 @@ export default function BotCheckers() {
           >
             {cells}
           </div>
-          <div style={{ marginTop: 8, fontSize: 14, color: "#c9b89f", display: "flex", alignItems: "center", gap: 8, minHeight: 22 }}>
+          <div style={{ marginTop: 8, fontSize: 14, color: "#c9b89f", display: showSide ? "none" : "flex", alignItems: "center", gap: 8, minHeight: 22 }}>
             {last ? (
               <>
                 <span style={{ color: "#8a7c6c" }}>마지막 수:</span>
@@ -329,7 +346,7 @@ export default function BotCheckers() {
           <div className="overlay-card card">
             <h2>{st.status === "draw" ? "⚖️ 무승부" : "🏆 게임 종료"}</h2>
             {st.status === "draw" ? (
-              <p>무승부입니다. (완벽 플레이 시 체커는 무승부 — 비긴 것도 훌륭!)</p>
+              <p>무승부입니다. 막상막하였네요!</p>
             ) : humanWon ? (
               <p>🎉 <b>당신</b>이 이겼습니다!</p>
             ) : (

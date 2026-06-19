@@ -10,6 +10,7 @@ import {
 } from "../net/aiWasm";
 import { useViewportSize } from "../bot/useViewport";
 import { playStone, playForbidden, playWin, playLose, playDraw } from "../bot/sound";
+import { RulesPanel } from "../bot/GamePanels";
 import SoundToggle from "../bot/SoundToggle";
 import Countdown from "../components/Countdown";
 
@@ -207,7 +208,7 @@ export default function BotOmok() {
   const avail = (availH > 0 ? availH : vh - 160) - 34;
   const boardSize = Math.max(240, Math.min(Math.round(vw * 0.7), Math.round(avail)));
   const gap = (vw - boardSize) / 2;
-  const showLog = gap >= 200; // 오른쪽 여백에 기보 패널 둘 공간
+  const showSide = gap >= 200; // 좌(마지막 수·기보)·우(게임 방법) 패널 공간
   const lastMv = moves[moves.length - 1];
 
   return (
@@ -272,11 +273,11 @@ export default function BotOmok() {
           justifyContent: "center",
         }}
       >
-        {showLog && (
+        {showSide && (
           <aside
             style={{
               position: "absolute",
-              right: 16,
+              left: 16,
               top: 0,
               width: 234,
               maxHeight: boardSize,
@@ -287,7 +288,20 @@ export default function BotOmok() {
               borderRadius: 14,
             }}
           >
-            <div style={{ padding: "12px 14px 8px", borderBottom: "1px solid #2f251f", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            {/* 마지막 수 */}
+            <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid #2f251f" }}>
+              <div style={{ fontSize: 11, letterSpacing: ".15em", color: "#8a7c6c", fontFamily: "monospace", marginBottom: 8 }}>마지막 수</div>
+              {lastMv ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ width: 14, height: 14, borderRadius: "50%", background: lastMv.color === BLACK ? "#111" : "#fafafa", border: "1px solid #888", display: "inline-block" }} />
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{lastMv.color === BLACK ? "흑" : "백"} {lastMv.color === human ? "(나)" : "(봇)"}</span>
+                  <span style={{ fontFamily: "monospace", color: "#e0a458", fontWeight: 700, fontSize: 15 }}>{omokCoord(lastMv.idx)}</span>
+                </div>
+              ) : (
+                <div style={{ color: "#6b5d4f", fontSize: 13 }}>빈 칸을 클릭해 두세요</div>
+              )}
+            </div>
+            <div style={{ padding: "10px 14px 6px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <span style={{ fontSize: 11, letterSpacing: ".15em", color: "#8a7c6c", fontFamily: "monospace" }}>기보</span>
               <span style={{ fontFamily: "monospace", fontSize: 11, color: "#e0a458" }}>총 {moves.length}수</span>
             </div>
@@ -323,6 +337,8 @@ export default function BotOmok() {
           </aside>
         )}
 
+        {showSide && <RulesPanel game="omok" maxHeight={boardSize} />}
+
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
           <BotGoban
             size={boardSize}
@@ -333,8 +349,8 @@ export default function BotOmok() {
             clickable={myTurn}
             onCell={onCellClick}
           />
-          {/* 보드 아래 마지막 수 요약 */}
-          <div style={{ marginTop: 8, fontSize: 14, color: "#c9b89f", display: "flex", alignItems: "center", gap: 8, minHeight: 22 }}>
+          {/* 보드 아래 마지막 수 요약(사이드 패널이 숨는 좁은 화면에서만) */}
+          <div style={{ marginTop: 8, fontSize: 14, color: "#c9b89f", display: showSide ? "none" : "flex", alignItems: "center", gap: 8, minHeight: 22 }}>
             {lastMv ? (
               <>
                 <span style={{ color: "#8a7c6c" }}>마지막 수:</span>

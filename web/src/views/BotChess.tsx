@@ -15,11 +15,9 @@ import {
 import { CHESS_FILES, CHESS_GLYPH, CHESS_NAME_KR } from "../types";
 import { useViewportSize } from "../bot/useViewport";
 import { playMove, playCapture, playCheck, playResult, playDraw } from "../bot/sound";
+import { RulesPanel } from "../bot/GamePanels";
 import SoundToggle from "../bot/SoundToggle";
 import Countdown from "../components/Countdown";
-
-// 기물 범례(왼쪽 사이드바): 유니코드 글리프 ↔ 한글 이름.
-const PIECE_LEGEND = ["k", "q", "r", "b", "n", "p"];
 
 const LEVEL_NAME = ["쉬움", "중간", "어려움", "헬"];
 const TURN_MS = 45_000;
@@ -314,8 +312,7 @@ export default function BotChess() {
   const avail = (availH > 0 ? availH : vh - 160) - 40;
   const boardSize = Math.max(240, Math.min(Math.round(vw * 0.7), Math.round(avail)));
   const gap = (vw - boardSize) / 2;
-  const showLegend = gap >= 170;
-  const showLog = gap >= 210; // 오른쪽 여백에 기보 패널 둘 공간
+  const showSide = gap >= 210; // 좌(마지막 수·기보)·우(게임 방법) 패널 둘 공간
 
   const last = moves[moves.length - 1];
 
@@ -350,48 +347,50 @@ export default function BotChess() {
         <SoundToggle />
       </div>
 
-      {/* 풀블리드: 보드 중앙, 왼쪽 기물 범례 · 오른쪽 상세 기보 로그 */}
+      {/* 풀블리드: 보드 중앙, 왼쪽 '마지막 수·기보' · 오른쪽 '게임 방법' */}
       <div
         ref={boardWrapRef}
         style={{ width: `${vw}px`, marginLeft: `calc(50% - ${vw / 2}px)`, marginTop: 12, position: "relative", display: "flex", justifyContent: "center" }}
       >
-        {showLegend && (
-          <aside style={{ position: "absolute", left: 16, top: 0, width: 150, ...cardStyle }}>
-            <div style={labelHead}>기물</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {PIECE_LEGEND.map((t) => (
-                <div key={t} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 26, lineHeight: 1, width: 26, textAlign: "center", color: "#faf4e6", WebkitTextStroke: "1px #6b4a2e" }}>
-                    {CHESS_GLYPH[t]}
-                  </span>
-                  <span style={{ color: "#8a7c6c" }}>:</span>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: "#f3ebdd" }}>{CHESS_NAME_KR[t]}</span>
+        {showSide && (
+          <aside style={{ position: "absolute", left: 16, top: 0, width: 272, maxHeight: boardSize, display: "flex", flexDirection: "column", ...cardStyle, padding: 0 }}>
+            {/* 마지막 수 */}
+            <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid #2f251f" }}>
+              <div style={{ ...labelHead, marginBottom: 8 }}>마지막 수</div>
+              {last ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 22, lineHeight: 1, color: last.color === "w" ? "#faf4e6" : "#241b15", WebkitTextStroke: last.color === "w" ? ".6px #6b4a2e" : ".6px #c9b89f" }}>{CHESS_GLYPH[last.t]}</span>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{CHESS_NAME_KR[last.t]}</span>
+                  <span style={{ fontFamily: "monospace", color: "#e0a458", fontSize: 14 }}>{sq(...last.from)}→{sq(...last.to)}</span>
+                  {last.castle && <Badge text={last.castle === "K" ? "캐슬링 킹사이드" : "캐슬링 퀸사이드"} c="#7dd3fc" />}
+                  {last.capture && <Badge text="잡음" c="#fb7185" />}
+                  {last.mate ? <Badge text="체크메이트" c="#ff5a5a" /> : last.check && <Badge text="체크" c="#ff5a5a" />}
                 </div>
-              ))}
+              ) : (
+                <div style={{ color: "#6b5d4f", fontSize: 13 }}>기물을 클릭해 두세요</div>
+              )}
             </div>
-          </aside>
-        )}
-
-        {showLog && (
-          <aside style={{ position: "absolute", right: 16, top: 0, width: 272, maxHeight: boardSize, display: "flex", flexDirection: "column", ...cardStyle, padding: 0 }}>
-            <div style={{ padding: "12px 14px 8px", borderBottom: "1px solid #2f251f", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            {/* 기보 */}
+            <div style={{ padding: "10px 14px 6px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <span style={labelHead}>기보</span>
               <span style={{ fontFamily: "monospace", fontSize: 11, color: "#e0a458" }}>총 {moves.length}수</span>
             </div>
-            <div ref={logRef} className="scl" style={{ overflowY: "auto", padding: "6px 8px", display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+            <div ref={logRef} className="scl" style={{ overflowY: "auto", padding: "0 8px 6px", display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
               {moves.length === 0 && <div style={{ color: "#6b5d4f", fontSize: 12, padding: 8 }}>아직 둔 수가 없습니다</div>}
               {moves.map((m) => (
                 <MoveRow key={m.n} m={m} highlight={m.n === moves.length} />
               ))}
             </div>
             <div style={{ padding: "8px 14px", borderTop: "1px solid #2f251f", fontSize: 11.5, color: "#a99a86", display: "flex", justifyContent: "space-between" }}>
-              <span>♔ 캐슬링(킹·룩 이동)</span>
+              <span>♔ 캐슬링</span>
               <span style={{ fontFamily: "monospace" }}>
                 백 {castled.w ? "✓" : "–"} · 흑 {castled.b ? "✓" : "–"}
               </span>
             </div>
           </aside>
         )}
+
+        {showSide && <RulesPanel game="chess" maxHeight={boardSize} />}
 
         <div style={{ width: `${boardSize}px` }}>
           <div
@@ -408,8 +407,8 @@ export default function BotChess() {
           >
             {cells}
           </div>
-          {/* 보드 아래 마지막 수 요약(좁은 화면에서도 보임) */}
-          <div style={{ marginTop: 10, fontSize: 13, color: "#c9b89f", display: "flex", alignItems: "center", gap: 8, minHeight: 22, justifyContent: "center" }}>
+          {/* 보드 아래 마지막 수 요약(사이드 패널이 숨는 좁은 화면에서만) */}
+          <div style={{ marginTop: 10, fontSize: 13, color: "#c9b89f", display: showSide ? "none" : "flex", alignItems: "center", gap: 8, minHeight: 22, justifyContent: "center" }}>
             {last ? (
               <>
                 <span style={{ color: "#8a7c6c" }}>마지막 수:</span>

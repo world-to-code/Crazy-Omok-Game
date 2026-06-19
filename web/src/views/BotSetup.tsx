@@ -3,10 +3,10 @@ import { useGame } from "../state/store";
 
 // 봇전 설정: 난이도(쉬움/중간/어려움/헬) + 선공 선택 → 즉시 시작.
 const LEVELS: { v: 0 | 1 | 2 | 3; emoji: string; name: string; desc: string }[] = [
-  { v: 0, emoji: "🙂", name: "쉬움", desc: "빠르게 둠 · 가끔 실수 · 입문자용" },
-  { v: 1, emoji: "😎", name: "중간", desc: "수읽기 시작 · 만만치 않음" },
-  { v: 2, emoji: "🔥", name: "어려움", desc: "최대 5초 수읽기 · 사람이 이기기 매우 어려움" },
-  { v: 3, emoji: "😈", name: "헬", desc: "최대 10초 · 더 깊고 넓게 · 강제승 완전탐색/오프닝북" },
+  { v: 0, emoji: "🙂", name: "쉬움", desc: "느긋하게 두는 상대" },
+  { v: 1, emoji: "😎", name: "중간", desc: "제법 두는 상대, 방심은 금물" },
+  { v: 2, emoji: "🔥", name: "어려움", desc: "수를 깊이 읽는 강적" },
+  { v: 3, emoji: "😈", name: "헬", desc: "전력을 다하는 최강의 적수" },
 ];
 
 export default function BotSetup() {

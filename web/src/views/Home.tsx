@@ -48,7 +48,7 @@ export default function Home() {
         >
           <div className="game-emoji">⛀⛂</div>
           <div className="game-title">체커 (드래프트)</div>
-          <div className="game-sub">봇 전용 · 헬은 사실상 무패</div>
+          <div className="game-sub">대각선으로 뛰어넘어 잡는 보드게임</div>
         </button>
       </div>
 
