@@ -22,7 +22,23 @@ import type {
   ServerMsg,
 } from "../types";
 
-export type Screen = "home" | "create" | "joinCode" | "find" | "lobby" | "game" | "joinLink";
+export type Screen =
+  | "home"
+  | "create"
+  | "joinCode"
+  | "find"
+  | "lobby"
+  | "game"
+  | "joinLink"
+  | "botSetup"
+  | "botGame";
+
+// 봇전(로컬, 서버 없음) 설정.
+export interface BotConfig {
+  game: "omok" | "chess";
+  level: 0 | 1 | 2 | 3; // 쉬움 · 중간 · 어려움 · 헬
+  humanFirst: boolean; // 오목=사람 흑(선), 체스=사람 백(선)
+}
 
 export interface GameState {
   connected: boolean;
@@ -52,6 +68,7 @@ export interface GameState {
   // 게임 종류
   game: string; // 현재 방의 게임 ("omok" | "flick" | "chess")
   selectedGame: "omok" | "flick" | "chess"; // 메인에서 고른 게임
+  bot: BotConfig | null; // 봇전 진행 중이면 설정
   // 체스
   chess: {
     board: (ChessPiece | null)[][];
@@ -113,6 +130,7 @@ const initial: GameState = {
   linkCode: null,
   game: "omok",
   selectedGame: "omok",
+  bot: null,
   chess: null,
   chessTally: new Map(),
   arenaR: 320,
@@ -144,6 +162,7 @@ type Action =
   | { kind: "screen"; screen: Screen }
   | { kind: "linkJoin"; code: string }
   | { kind: "selectGame"; game: "omok" | "flick" | "chess" }
+  | { kind: "startBot"; cfg: BotConfig }
   | { kind: "flickApply" }
   | { kind: "clearError" }
   | { kind: "reset" };
@@ -158,6 +177,8 @@ function reducer(s: GameState, a: Action): GameState {
       return { ...s, screen: "joinLink", linkCode: a.code };
     case "selectGame":
       return { ...s, selectedGame: a.game };
+    case "startBot":
+      return { ...s, bot: a.cfg, screen: "botGame" };
     case "flickApply": {
       const p = s.flickPending;
       if (!p) return { ...s, flickResolve: null };
@@ -458,6 +479,7 @@ interface Ctx {
   send: (m: ClientMsg) => void;
   setScreen: (s: Screen) => void;
   selectGame: (g: "omok" | "flick" | "chess") => void;
+  startBot: (cfg: BotConfig) => void;
   applyFlick: () => void;
   returnToLobby: () => void;
   clearError: () => void;
@@ -580,13 +602,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
   // dispatch는 안정적이므로 콜백들도 안정적. ctx는 state가 바뀔 때만 새로 만든다.
   const setScreen = useCallback((screen: Screen) => dispatch({ kind: "screen", screen }), []);
   const selectGame = useCallback((game: "omok" | "flick" | "chess") => dispatch({ kind: "selectGame", game }), []);
+  const startBot = useCallback((cfg: BotConfig) => dispatch({ kind: "startBot", cfg }), []);
   const applyFlick = useCallback(() => dispatch({ kind: "flickApply" }), []);
   const returnToLobby = useCallback(() => send({ type: "ReturnToLobby" }), [send]);
   const clearError = useCallback(() => dispatch({ kind: "clearError" }), []);
 
   const ctx: Ctx = useMemo(
-    () => ({ state, send, setScreen, selectGame, applyFlick, returnToLobby, clearError, leave }),
-    [state, send, setScreen, selectGame, applyFlick, returnToLobby, clearError, leave],
+    () => ({ state, send, setScreen, selectGame, startBot, applyFlick, returnToLobby, clearError, leave }),
+    [state, send, setScreen, selectGame, startBot, applyFlick, returnToLobby, clearError, leave],
   );
 
   return <GameContext.Provider value={ctx}>{children}</GameContext.Provider>;

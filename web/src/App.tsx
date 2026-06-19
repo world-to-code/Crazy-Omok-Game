@@ -9,6 +9,9 @@ import Game from "./views/Game";
 import FlickGame from "./views/FlickGame";
 import ChessGame from "./views/ChessGame";
 import JoinLink from "./views/JoinLink";
+import BotSetup from "./views/BotSetup";
+import BotOmok from "./views/BotOmok";
+import BotChess from "./views/BotChess";
 
 export default function App() {
   const { state, clearError } = useGame();
@@ -47,7 +50,16 @@ function render(screen: string, game: string) {
       return <Lobby />;
     case "game":
       return game === "flick" ? <FlickGame /> : game === "chess" ? <ChessGame /> : <Game />;
+    case "botSetup":
+      return <BotSetup />;
+    case "botGame":
+      return <BotGameRouter />;
     default:
       return <Home />;
   }
+}
+
+function BotGameRouter() {
+  const { state } = useGame();
+  return state.bot?.game === "chess" ? <BotChess /> : <BotOmok />;
 }

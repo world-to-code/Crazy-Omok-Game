@@ -9,3 +9,4 @@ server/.env
 !.env.example
 
 web/wasm-flick/target/
+web/wasm-ai/target/

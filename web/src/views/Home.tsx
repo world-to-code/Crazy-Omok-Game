@@ -45,7 +45,12 @@ export default function Home() {
       </div>
 
       <div className="home-buttons">
-        <button className="big primary" onClick={() => setScreen("create")}>
+        {g !== "flick" && (
+          <button className="big primary" onClick={() => setScreen("botSetup")}>
+            🤖 봇과 대결 ({g === "chess" ? "체스" : "오목"})
+          </button>
+        )}
+        <button className="big" onClick={() => setScreen("create")}>
           🛠️ 방 만들기
         </button>
         <button className="big" onClick={() => setScreen("joinCode")}>
