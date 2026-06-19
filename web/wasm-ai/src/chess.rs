@@ -410,6 +410,30 @@ impl Pos {
             .map(|k| attacked(&self.board, k.0, k.1, c.other()))
             .unwrap_or(false)
     }
+
+    /// 널무브: 한 수 거르기(차례만 넘김, 앙파상 해제). NMP용.
+    fn null_move(&self) -> Pos {
+        Pos {
+            board: self.board,
+            turn: self.turn.other(),
+            castling: self.castling,
+            ep: None,
+        }
+    }
+
+    /// 둘 차례 쪽에 폰 외의 기물이 있는가(NMP 저그츠방 회피용).
+    fn has_non_pawn(&self, c: Color) -> bool {
+        for r in 0..8 {
+            for f in 0..8 {
+                if let Some(p) = self.board[r][f] {
+                    if p.c == c && p.t != PT::P && p.t != PT::K {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
 }
 
 // ===== FEN =====
@@ -707,6 +731,8 @@ fn evaluate(pos: &Pos) -> i32 {
     let mut bb = 0;
     let mut wpawn_file = [0i32; 8]; // 파일별 백 폰 수
     let mut bpawn_file = [0i32; 8];
+    let mut wp_bottom = [-1i32; 8]; // 파일별 가장 전진한 백 폰의 행(최대 r)
+    let mut bp_top = [8i32; 8]; // 파일별 가장 전진한 흑 폰의 행(최소 r)
     for r in 0..8 {
         for f in 0..8 {
             if let Some(p) = pos.board[r][f] {
@@ -718,7 +744,13 @@ fn evaluate(pos: &Pos) -> i32 {
                         if p.c == Color::W { wb += 1; } else { bb += 1; }
                     }
                     PT::P => {
-                        if p.c == Color::W { wpawn_file[f] += 1; } else { bpawn_file[f] += 1; }
+                        if p.c == Color::W {
+                            wpawn_file[f] += 1;
+                            if (r as i32) > wp_bottom[f] { wp_bottom[f] = r as i32; }
+                        } else {
+                            bpawn_file[f] += 1;
+                            if (r as i32) < bp_top[f] { bp_top[f] = r as i32; }
+                        }
                     }
                     _ => {}
                 }
@@ -752,6 +784,39 @@ fn evaluate(pos: &Pos) -> i32 {
         }
         if bpawn_file[f] > 0 && bpawn_file[left] == 0 && bpawn_file[right] == 0 {
             score += 14;
+        }
+    }
+
+    // 패스폰(앞·옆 파일에 적 폰 없음) + 룩 열린/반열린 파일.
+    const PASSED: [i32; 8] = [0, 14, 24, 42, 70, 110, 110, 0];
+    for r in 0..8 {
+        for f in 0..8 {
+            let Some(p) = pos.board[r][f] else { continue };
+            let lf = if f > 0 { f - 1 } else { f };
+            let rf = if f < 7 { f + 1 } else { f };
+            match p.t {
+                PT::P => {
+                    if p.c == Color::W {
+                        // 앞쪽(행이 더 작은 쪽)에 흑 폰이 없으면 패스폰.
+                        let blocked = [lf, f, rf].iter().any(|&ff| bp_top[ff] < r as i32);
+                        if !blocked {
+                            score += PASSED[(6 - r as i32).clamp(0, 7) as usize];
+                        }
+                    } else {
+                        let blocked = [lf, f, rf].iter().any(|&ff| wp_bottom[ff] > r as i32);
+                        if !blocked {
+                            score -= PASSED[(r as i32 - 1).clamp(0, 7) as usize];
+                        }
+                    }
+                }
+                PT::R => {
+                    let own = if p.c == Color::W { wpawn_file[f] } else { bpawn_file[f] };
+                    let opp = if p.c == Color::W { bpawn_file[f] } else { wpawn_file[f] };
+                    let bonus = if own == 0 && opp == 0 { 22 } else if own == 0 { 11 } else { 0 };
+                    if p.c == Color::W { score += bonus; } else { score -= bonus; }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -890,11 +955,19 @@ pub struct Searcher {
     nodes: u64,
     stop: bool,
     killers: Vec<[Option<(i32, i32, i32, i32)>; 2]>,
+    history: Vec<i32>, // [from_sq*64 + to_sq] 정렬 휴리스틱
     tt: Vec<TtEntry>,
 }
 
 fn mv_key(m: &Move) -> (i32, i32, i32, i32) {
     (m.fr.0, m.fr.1, m.to.0, m.to.1)
+}
+
+#[inline]
+fn hist_idx(m: &Move) -> usize {
+    let from = (m.fr.0 * 8 + m.fr.1) as usize;
+    let to = (m.to.0 * 8 + m.to.1) as usize;
+    from * 64 + to
 }
 
 impl Searcher {
@@ -903,7 +976,8 @@ impl Searcher {
             deadline,
             nodes: 0,
             stop: false,
-            killers: vec![[None, None]; 64],
+            killers: vec![[None, None]; 128],
+            history: vec![0; 64 * 64],
             tt: vec![
                 TtEntry { key: 0, depth: 0, flag: 0, score: 0, mv: (0, 0, 0, 0), used: false };
                 TT_SIZE
@@ -926,16 +1000,19 @@ impl Searcher {
         moves.sort_by_cached_key(|m| {
             let mut s = 0i32;
             if Some(mv_key(m)) == tt_move {
-                s += 1_000_000;
+                s += 10_000_000;
             }
             if m.cap {
                 let victim = m.cap_t.map(|t| t.value()).unwrap_or(100);
-                s += 10_000 + victim - m.t.value() / 10;
+                s += 100_000 + victim - m.t.value() / 10;
             } else if killers[0] == Some(mv_key(m)) || killers[1] == Some(mv_key(m)) {
-                s += 9_000;
+                s += 90_000;
+            } else {
+                // 히스토리 휴리스틱(조용한 수 정렬).
+                s += self.history[hist_idx(m)].min(80_000);
             }
             if m.promo {
-                s += 8_000;
+                s += 80_000;
             }
             let _ = pos;
             -s // 오름차순 정렬이므로 부호 반전
@@ -1015,21 +1092,43 @@ impl Searcher {
         if moves.is_empty() {
             return if in_check { -MATE + ply as i32 } else { 0 };
         }
+
+        // 널무브 가지치기(NMP): 체크 아님 · 비-PV(좁은 창) · 깊이 충분 · 폰 외 기물 보유.
+        let is_pv = beta - alpha > 1;
+        if !in_check && !is_pv && d >= 3 && beta.abs() < MATE - 1000 && pos.has_non_pawn(pos.turn) {
+            let r = 2 + d / 4;
+            let np = pos.null_move();
+            let score = -self.negamax(&np, d - 1 - r, -beta, -beta + 1, ply + 1);
+            if self.stop {
+                return alpha;
+            }
+            if score >= beta {
+                return beta;
+            }
+        }
+
         self.order(pos, &mut moves, tt_move, ply);
         let alpha_orig = alpha;
         let mut best = -MATE * 2;
         let mut best_move = mv_key(&moves[0]);
         for (i, m) in moves.iter().enumerate() {
             let np = pos.make(m);
-            // 후반 무이동 감축(LMR): 깊고, 비포획, 체크 아님.
+            let quiet = !m.cap && !m.promo;
             let mut score;
-            if i >= 4 && d >= 3 && !m.cap && !m.promo && !in_check {
-                score = -self.negamax(&np, d - 2, -alpha - 1, -alpha, ply + 1);
+            if i == 0 {
+                // 첫 수(PV 추정): 전체 창 탐색.
+                score = -self.negamax(&np, d - 1, -beta, -alpha, ply + 1);
+            } else {
+                // LMR: 늦은 조용한 수는 깊이를 줄여 영-창으로 정찰.
+                let mut red = 0;
+                if quiet && d >= 3 && i >= 3 && !in_check {
+                    red = 1 + ((i as i32) / 6).min(2) + ((d - 3) / 4).min(2);
+                }
+                score = -self.negamax(&np, d - 1 - red, -alpha - 1, -alpha, ply + 1);
+                // 알파를 넘기면 전체 창·전체 깊이로 재탐색.
                 if score > alpha {
                     score = -self.negamax(&np, d - 1, -beta, -alpha, ply + 1);
                 }
-            } else {
-                score = -self.negamax(&np, d - 1, -beta, -alpha, ply + 1);
             }
             if self.stop {
                 return best.max(alpha);
@@ -1042,13 +1141,14 @@ impl Searcher {
                 alpha = score;
             }
             if alpha >= beta {
-                if !m.cap {
+                if quiet {
                     if let Some(k) = self.killers.get_mut(ply) {
                         if k[0] != Some(mv_key(m)) {
                             k[1] = k[0];
                             k[0] = Some(mv_key(m));
                         }
                     }
+                    self.history[hist_idx(m)] += d * d;
                 }
                 break;
             }

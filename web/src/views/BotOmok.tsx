@@ -9,6 +9,8 @@ import {
   type Level,
 } from "../net/aiWasm";
 import { useViewportSize } from "../bot/useViewport";
+import { playStone, playForbidden, playWin, playLose, playDraw } from "../bot/sound";
+import SoundToggle from "../bot/SoundToggle";
 import Countdown from "../components/Countdown";
 
 const N = 15;
@@ -99,21 +101,25 @@ export default function BotOmok() {
       setBoard(nb);
       setLast(idx);
       setMoves((m) => [...m, { n: m.length + 1, color, idx }]);
+      playStone();
       const line = winLineThrough(nb, idx, color);
       if (line) {
         setWinner(color);
         setWinLine(line);
         setTurn(0);
         setDeadline(null);
+        if (color === human) playWin();
+        else playLose();
       } else if (nb.every((v) => v !== 0)) {
         setWinner(3);
         setTurn(0);
         setDeadline(null);
+        playDraw();
       } else {
         setTurn(color === BLACK ? WHITE : BLACK);
       }
     },
-    [],
+    [human],
   );
 
   // 봇 차례 자동 착수.
@@ -152,6 +158,7 @@ export default function BotOmok() {
     if (winner !== 0 || turn !== human || board[idx] !== 0 || thinking) return;
     if (forbidden.has(idx)) {
       setNotice("여기는 금수예요 — 삼삼·사사·장목은 흑(선)이 둘 수 없습니다.");
+      playForbidden();
       return;
     }
     setNotice(null);
@@ -227,6 +234,7 @@ export default function BotOmok() {
         <div className="rule-info">
           🤖 {LEVEL_NAME[level]} · {WIN}목 · 렌주룰(금수)
         </div>
+        <SoundToggle />
       </div>
 
       {notice && (

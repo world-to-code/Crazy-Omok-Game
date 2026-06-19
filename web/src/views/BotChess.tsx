@@ -14,6 +14,8 @@ import {
 } from "../net/aiWasm";
 import { CHESS_FILES, CHESS_GLYPH, CHESS_NAME_KR } from "../types";
 import { useViewportSize } from "../bot/useViewport";
+import { playMove, playCapture, playCheck, playResult, playDraw } from "../bot/sound";
+import SoundToggle from "../bot/SoundToggle";
 import Countdown from "../components/Countdown";
 
 // 기물 범례(왼쪽 사이드바): 유니코드 글리프 ↔ 한글 이름.
@@ -118,8 +120,16 @@ export default function BotChess() {
       setLastMove([from, to]);
       setSelected(null);
       setOptions([]);
+      // 사운드.
+      if (newState.status === "checkmate") playResult(rec.color === humanColor);
+      else if (newState.status === "stalemate") playDraw();
+      else {
+        if (rec.capture) playCapture();
+        else playMove();
+        if (rec.check) playCheck();
+      }
     },
-    [],
+    [humanColor],
   );
 
   // 봇 차례 자동 착수.
@@ -337,6 +347,7 @@ export default function BotChess() {
         </div>
         <Countdown deadlineMs={deadline} />
         <div className="rule-info">🤖 {LEVEL_NAME[level]}</div>
+        <SoundToggle />
       </div>
 
       {/* 풀블리드: 보드 중앙, 왼쪽 기물 범례 · 오른쪽 상세 기보 로그 */}

@@ -194,10 +194,10 @@ pub fn chess_ai(fen: &str, level: u8) -> String {
         }
     }
     let (max_depth, budget_ms): (i32, f64) = match level {
-        0 => (2, 120.0),
-        1 => (8, 900.0),
-        2 => (40, 5000.0),
-        _ => (64, 10000.0), // 헬
+        0 => (4, 250.0),    // 쉬움(그래도 즉수 블런더는 회피)
+        1 => (12, 1800.0),  // 중간
+        2 => (64, 7000.0),  // 어려움
+        _ => (64, 14000.0), // 헬
     };
     let deadline = now_ms() + budget_ms;
     let scored = search_root(&p, deadline, max_depth);
