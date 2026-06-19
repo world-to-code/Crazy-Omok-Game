@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 
-// 스크롤바를 제외한 '보이는' 뷰포트 너비(px). 보드 크기/풀블리드 정렬에 사용.
-export function useViewportWidth(): number {
-  const [w, setW] = useState(() =>
-    typeof document === "undefined" ? 1024 : document.documentElement.clientWidth,
+// 스크롤바를 제외한 '보이는' 뷰포트 크기(px). 보드 크기/풀블리드 정렬에 사용.
+export function useViewportSize(): { w: number; h: number } {
+  const [s, setS] = useState(() =>
+    typeof document === "undefined"
+      ? { w: 1024, h: 768 }
+      : { w: document.documentElement.clientWidth, h: document.documentElement.clientHeight },
   );
   useEffect(() => {
     const el = document.documentElement;
-    const update = () => setW(el.clientWidth);
+    const update = () => setS({ w: el.clientWidth, h: el.clientHeight });
     update();
     // 세로 스크롤바 등장/소멸로 clientWidth가 바뀌는 것도 잡도록 ResizeObserver 사용.
     const ro = new ResizeObserver(update);
@@ -18,5 +20,5 @@ export function useViewportWidth(): number {
       window.removeEventListener("resize", update);
     };
   }, []);
-  return w;
+  return s;
 }

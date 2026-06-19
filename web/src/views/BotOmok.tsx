@@ -8,7 +8,7 @@ import {
   terminateAiWorker,
   type Level,
 } from "../net/aiWasm";
-import { useViewportWidth } from "../bot/useViewport";
+import { useViewportSize } from "../bot/useViewport";
 import Countdown from "../components/Countdown";
 
 const N = 15;
@@ -163,9 +163,22 @@ export default function BotOmok() {
   const myTurn = winner === 0 && turn === human && !thinking;
   const winLineSet = new Set(winLine);
 
-  // 화면 가로 70%를 한 변으로(정사각). 풀블리드로 .app(max-width) 밖까지 확장.
-  const vw = useViewportWidth();
-  const boardSize = Math.max(240, Math.round(vw * 0.7));
+  // 스크롤이 안 생기게: 가로 70% 와 '보드 위 영역(상단 바)을 뺀 남은 높이' 중 작은 값(정사각).
+  const { w: vw, h: vh } = useViewportSize();
+  const boardWrapRef = useRef<HTMLDivElement | null>(null);
+  const [availH, setAvailH] = useState(0);
+  useEffect(() => {
+    const update = () => {
+      const top = boardWrapRef.current?.getBoundingClientRect().top ?? 150;
+      // .app 의 하단 패딩(60px) + 약간의 여백까지 빼야 세로 스크롤이 안 생긴다.
+      setAvailH(document.documentElement.clientHeight - top - 66);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [vw, vh, winner]);
+  const avail = availH > 0 ? availH : vh - 160;
+  const boardSize = Math.max(240, Math.min(Math.round(vw * 0.7), Math.round(avail)));
 
   return (
     <div className="game" style={{ width: "100%", marginLeft: 0 }}>
@@ -196,20 +209,28 @@ export default function BotOmok() {
       {notice && (
         <div
           style={{
-            margin: "8px auto 0",
-            maxWidth: 560,
-            textAlign: "center",
+            position: "fixed",
+            top: 78,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 30,
+            padding: "8px 16px",
+            borderRadius: 10,
+            background: "rgba(40,12,12,0.95)",
+            border: "1px solid #ff6b6b",
             color: "#ff6b6b",
             fontWeight: 600,
             fontSize: 14,
+            boxShadow: "0 8px 24px rgba(0,0,0,.4)",
           }}
         >
           ⛔ {notice}
         </div>
       )}
 
-      {/* 풀블리드: 뷰포트 전체 폭 컨테이너를 화면 정중앙에 두고 그 안에서 70% 보드를 중앙 정렬 */}
+      {/* 풀블리드: 뷰포트 전체 폭 컨테이너를 화면 정중앙에 두고 그 안에서 보드를 중앙 정렬 */}
       <div
+        ref={boardWrapRef}
         style={{
           width: `${vw}px`,
           marginLeft: `calc(50% - ${vw / 2}px)`,
