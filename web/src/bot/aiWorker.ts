@@ -5,7 +5,7 @@ import init, { omok_best_move, chess_ai } from "../wasm-ai/ai_wasm.js";
 let ready: Promise<unknown> | null = null;
 
 type Req =
-  | { id: number; kind: "omok"; board: Uint8Array; n: number; win: number; toMove: number; level: number }
+  | { id: number; kind: "omok"; board: Uint8Array; n: number; win: number; toMove: number; level: number; renju: number }
   | { id: number; kind: "chess"; fen: string; level: number };
 
 self.onmessage = async (e: MessageEvent<Req>) => {
@@ -14,7 +14,7 @@ self.onmessage = async (e: MessageEvent<Req>) => {
   const m = e.data;
   let res: number | string;
   if (m.kind === "omok") {
-    res = omok_best_move(m.board, m.n, m.win, m.toMove, m.level);
+    res = omok_best_move(m.board, m.n, m.win, m.toMove, m.level, m.renju);
   } else {
     res = chess_ai(m.fen, m.level);
   }

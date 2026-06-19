@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGame } from "../state/store";
-import { ensureAiWasm, isAiReady, omokBestMove, type Level } from "../net/aiWasm";
+import {
+  ensureAiWasm,
+  isAiReady,
+  omokBestMove,
+  omokForbidden,
+  terminateAiWorker,
+  type Level,
+} from "../net/aiWasm";
+import { useViewportWidth } from "../bot/useViewport";
 import Countdown from "../components/Countdown";
 
 const N = 15;
 const WIN = 5;
 const TURN_MS = 45_000;
+const RENJU = true; // 오목 정식(렌주) 룰: 흑(선)에 삼삼·사사·장목 금수
 
 const LEVEL_NAME = ["쉬움", "중간", "어려움", "헬"];
 const BLACK = 1;
@@ -55,11 +64,16 @@ export default function BotOmok() {
   const [thinking, setThinking] = useState(false);
   const [deadline, setDeadline] = useState<number | null>(null);
   const [ready, setReady] = useState(isAiReady());
+  const [forbidden, setForbidden] = useState<Set<number>>(new Set());
+  const [notice, setNotice] = useState<string | null>(null);
   const botBusy = useRef(false);
 
   useEffect(() => {
     ensureAiWasm().then(() => setReady(true));
   }, []);
+
+  // 방을 나가거나 페이지를 닫으면 AI 워커를 종료(백그라운드 계산 잔존 방지).
+  useEffect(() => () => terminateAiWorker(), []);
 
   const place = useCallback(
     (cur: number[], idx: number, color: number) => {
@@ -91,7 +105,7 @@ export default function BotOmok() {
     setThinking(true);
     const snapshot = board;
     const buf = Uint8Array.from(snapshot);
-    omokBestMove(buf, N, WIN, bot, level).then((idx) => {
+    omokBestMove(buf, N, WIN, bot, level, RENJU).then((idx) => {
       botBusy.current = false;
       setThinking(false);
       if (idx >= 0 && idx < N * N && snapshot[idx] === 0) {
@@ -106,10 +120,32 @@ export default function BotOmok() {
     else setDeadline(null);
   }, [turn, winner, human]);
 
+  // 렌주 금수 표시: 사람이 흑(선)이고 사람 차례일 때만 계산. (wasm 초기화 후)
+  useEffect(() => {
+    if (RENJU && ready && winner === 0 && turn === human && human === BLACK) {
+      setForbidden(new Set(omokForbidden(Uint8Array.from(board), N, WIN)));
+    } else if (forbidden.size > 0) {
+      setForbidden(new Set());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board, turn, winner, human, ready]);
+
   function onCellClick(idx: number) {
     if (winner !== 0 || turn !== human || board[idx] !== 0 || thinking) return;
+    if (forbidden.has(idx)) {
+      setNotice("여기는 금수예요 — 삼삼·사사·장목은 흑(선)이 둘 수 없습니다.");
+      return;
+    }
+    setNotice(null);
     place(board, idx, human);
   }
+
+  // 금수 안내는 잠시 후 자동으로 사라짐.
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNotice(null), 2500);
+    return () => clearTimeout(id);
+  }, [notice]);
 
   function restart() {
     botBusy.current = false;
@@ -119,14 +155,20 @@ export default function BotOmok() {
     setWinLine([]);
     setLast(null);
     setThinking(false);
+    setForbidden(new Set());
+    setNotice(null);
     // bot 선공이면 다음 effect에서 자동 착수.
   }
 
   const myTurn = winner === 0 && turn === human && !thinking;
   const winLineSet = new Set(winLine);
 
+  // 화면 가로 70%를 한 변으로(정사각). 풀블리드로 .app(max-width) 밖까지 확장.
+  const vw = useViewportWidth();
+  const boardSize = Math.max(240, Math.round(vw * 0.7));
+
   return (
-    <div className="game">
+    <div className="game" style={{ width: "100%", marginLeft: 0 }}>
       <div className="game-bar card">
         <button className="back" onClick={() => setScreen("home")}>
           ← 나가기
@@ -147,20 +189,44 @@ export default function BotOmok() {
         </div>
         <Countdown deadlineMs={deadline} />
         <div className="rule-info">
-          🤖 {LEVEL_NAME[level]} · {WIN}목
+          🤖 {LEVEL_NAME[level]} · {WIN}목 · 렌주룰(금수)
         </div>
       </div>
 
-      <div className="game-body">
-        <div className="game-board">
-          <BotGoban
-            board={board}
-            last={last}
-            winLine={winLineSet}
-            clickable={myTurn}
-            onCell={onCellClick}
-          />
+      {notice && (
+        <div
+          style={{
+            margin: "8px auto 0",
+            maxWidth: 560,
+            textAlign: "center",
+            color: "#ff6b6b",
+            fontWeight: 600,
+            fontSize: 14,
+          }}
+        >
+          ⛔ {notice}
         </div>
+      )}
+
+      {/* 풀블리드: 뷰포트 전체 폭 컨테이너를 화면 정중앙에 두고 그 안에서 70% 보드를 중앙 정렬 */}
+      <div
+        style={{
+          width: `${vw}px`,
+          marginLeft: `calc(50% - ${vw / 2}px)`,
+          marginTop: 12,
+          display: "flex",
+          justifyContent: "center",
+        }}
+      >
+        <BotGoban
+          size={boardSize}
+          forbidden={forbidden}
+          board={board}
+          last={last}
+          winLine={winLineSet}
+          clickable={myTurn}
+          onCell={onCellClick}
+        />
       </div>
 
       {winner !== 0 && (
@@ -198,33 +264,23 @@ export default function BotOmok() {
 
 // ===== 캔버스 바둑판 =====
 function BotGoban({
+  size,
   board,
   last,
   winLine,
+  forbidden,
   clickable,
   onCell,
 }: {
+  size: number;
   board: number[];
   last: number | null;
   winLine: Set<number>;
+  forbidden: Set<number>;
   clickable: boolean;
   onCell: (idx: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState(560);
-
-  useEffect(() => {
-    const update = () => {
-      const w = wrapRef.current?.clientWidth ?? 560;
-      const top = wrapRef.current?.getBoundingClientRect().top ?? 120;
-      const h = window.innerHeight - top - 24;
-      setSize(Math.max(260, Math.min(w, h, 640)));
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -290,7 +346,26 @@ function BotGoban({
         ctx.stroke();
       }
     }
-  }, [board, last, winLine, size]);
+
+    // 렌주 금수 표시: 빈칸에 빨간 ✕.
+    if (forbidden.size > 0) {
+      const m = rad * 0.5;
+      ctx.lineWidth = Math.max(2, cell * 0.07);
+      ctx.strokeStyle = "rgba(220,30,30,0.85)";
+      ctx.lineCap = "round";
+      for (const idx of forbidden) {
+        if (board[idx]) continue;
+        const cx = px(idx % N);
+        const cy = px(Math.floor(idx / N));
+        ctx.beginPath();
+        ctx.moveTo(cx - m, cy - m);
+        ctx.lineTo(cx + m, cy + m);
+        ctx.moveTo(cx + m, cy - m);
+        ctx.lineTo(cx - m, cy + m);
+        ctx.stroke();
+      }
+    }
+  }, [board, last, winLine, forbidden, size]);
 
   function onClick(e: React.MouseEvent<HTMLCanvasElement>) {
     if (!clickable) return;
@@ -304,12 +379,15 @@ function BotGoban({
   }
 
   return (
-    <div ref={wrapRef} style={{ display: "flex", justifyContent: "center", width: "100%" }}>
-      <canvas
-        ref={canvasRef}
-        onClick={onClick}
-        style={{ cursor: clickable ? "pointer" : "default", borderRadius: 8, boxShadow: "0 10px 30px rgba(0,0,0,.3)" }}
-      />
-    </div>
+    <canvas
+      ref={canvasRef}
+      onClick={onClick}
+      style={{
+        display: "block",
+        cursor: clickable ? "pointer" : "default",
+        borderRadius: 8,
+        boxShadow: "0 10px 30px rgba(0,0,0,.3)",
+      }}
+    />
   );
 }

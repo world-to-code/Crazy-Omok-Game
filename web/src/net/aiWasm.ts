@@ -6,6 +6,7 @@ import init, {
   chess_moves_from,
   chess_start,
   chess_state,
+  omok_forbidden,
 } from "../wasm-ai/ai_wasm.js";
 
 export type Level = 0 | 1 | 2 | 3; // 0 쉬움 · 1 중간 · 2 어려움 · 3 헬
@@ -73,6 +74,11 @@ export function chessApply(
   return JSON.parse(chess_apply(fen, fr, ff, tr, tf));
 }
 
+/** 렌주 금수(흑) 칸 인덱스 목록(동기, 메인스레드). */
+export function omokForbidden(board: Uint8Array, n: number, win: number): number[] {
+  return Array.from(omok_forbidden(board, n, win));
+}
+
 // ===== AI 탐색(Worker) =====
 let worker: Worker | null = null;
 let seq = 0;
@@ -92,20 +98,42 @@ function getWorker(): Worker {
   return worker;
 }
 
-/** 오목 최적 수(셀 인덱스). 둘 곳 없으면 -1. */
+/**
+ * 봇 AI 워커를 즉시 종료한다(진행 중인 탐색도 강제 중단).
+ * 방을 나가거나 페이지를 닫을 때 호출 — 백그라운드 계산이 남지 않게 한다.
+ * 다음 요청 시 워커는 자동으로 새로 생성된다.
+ */
+export function terminateAiWorker() {
+  if (worker) {
+    worker.terminate();
+    worker = null;
+  }
+  pending.clear();
+}
+
+// 탭/창을 닫거나 다른 페이지로 이동할 때도 워커를 정리.
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", terminateAiWorker);
+}
+
+/** 오목 최적 수(셀 인덱스). 둘 곳 없으면 -1. renju=true면 흑 금수 적용. */
 export function omokBestMove(
   board: Uint8Array,
   n: number,
   win: number,
   toMove: number,
   level: Level,
+  renju: boolean,
 ): Promise<number> {
   const id = ++seq;
   // Worker로 보내면 버퍼 소유권이 이전되므로 복사본 전송.
   const copy = board.slice();
   return new Promise((resolve) => {
     pending.set(id, (res) => resolve(res as number));
-    getWorker().postMessage({ id, kind: "omok", board: copy, n, win, toMove, level }, [copy.buffer]);
+    getWorker().postMessage(
+      { id, kind: "omok", board: copy, n, win, toMove, level, renju: renju ? 1 : 0 },
+      [copy.buffer],
+    );
   });
 }
 

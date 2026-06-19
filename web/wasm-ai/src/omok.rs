@@ -1,19 +1,22 @@
-//! 오목 AI: 윈도우 패턴 평가 + 알파베타(반복심화) + 즉승/즉방 전술.
-//! board: 길이 n*n, 0=빈칸, 1=흑, 2=백. 자유룰(금수 없음).
+//! 오목 AI: 윈도우 패턴 평가 + 알파베타(반복심화) + 즉승/즉방 전술 + VCF.
+//! board: 길이 n*n, 0=빈칸, 1=흑(선), 2=백. renju=true면 흑에 렌주 금수 적용
+//! (장목·사사·삼삼 금지, 흑은 '정확히 5'로만 승리).
 
 use crate::clock::now_ms;
 
 const WIN: i32 = 100_000_000;
+const BLACK: u8 = 1;
 
 pub struct Omok {
     pub n: i32,
     pub win: i32,
     pub cells: Vec<u8>,
+    pub renju: bool,
 }
 
 impl Omok {
-    pub fn new(cells: Vec<u8>, n: i32, win: i32) -> Omok {
-        Omok { n, win, cells }
+    pub fn new(cells: Vec<u8>, n: i32, win: i32, renju: bool) -> Omok {
+        Omok { n, win, cells, renju }
     }
     #[inline]
     fn idx(&self, r: i32, c: i32) -> usize {
@@ -27,25 +30,171 @@ impl Omok {
         self.cells[self.idx(r, c)]
     }
 
-    /// (r,c)에 color를 두면 win목이 완성되는가.
+    /// (r,c)를 지나는 한 방향의 연속 color 길이(자신 포함).
+    fn run_len(&self, r: i32, c: i32, color: u8, dr: i32, dc: i32) -> i32 {
+        let mut cnt = 1;
+        let mut k = 1;
+        while self.get(r + dr * k, c + dc * k) == color {
+            cnt += 1;
+            k += 1;
+        }
+        let mut k = 1;
+        while self.get(r - dr * k, c - dc * k) == color {
+            cnt += 1;
+            k += 1;
+        }
+        cnt
+    }
+
+    /// (r,c)에 color를 두면 승리인가. 렌주에서 흑은 '정확히 win목'만 승리(장목은 승리 아님).
     fn makes_win(&self, r: i32, c: i32, color: u8) -> bool {
+        let exact = self.renju && color == BLACK;
         for (dr, dc) in [(0, 1), (1, 0), (1, 1), (1, -1)] {
-            let mut cnt = 1;
-            let mut k = 1;
-            while self.get(r + dr * k, c + dc * k) == color {
-                cnt += 1;
-                k += 1;
-            }
-            let mut k = 1;
-            while self.get(r - dr * k, c - dc * k) == color {
-                cnt += 1;
-                k += 1;
-            }
-            if cnt >= self.win {
+            let cnt = self.run_len(r, c, color, dr, dc);
+            if exact {
+                if cnt == self.win {
+                    return true;
+                }
+            } else if cnt >= self.win {
                 return true;
             }
         }
         false
+    }
+
+    // ===== 렌주 금수(흑 전용): 장목·사사·삼삼 =====
+
+    /// (r,c)에 흑을 두는 것이 금수인가. (r,c)는 빈칸 가정.
+    fn is_forbidden(&mut self, r: i32, c: i32) -> bool {
+        if !self.renju {
+            return false;
+        }
+        let ix = self.idx(r, c);
+        if self.cells[ix] != 0 {
+            return false;
+        }
+        self.cells[ix] = BLACK;
+        let res = self.classify_forbidden(r, c);
+        self.cells[ix] = 0;
+        res
+    }
+
+    fn classify_forbidden(&self, r: i32, c: i32) -> bool {
+        // 정확히 5를 만들면 승리(금수 아님). 5 없이 6목 이상이면 장목.
+        let mut overline = false;
+        for (dr, dc) in [(0, 1), (1, 0), (1, 1), (1, -1)] {
+            let run = self.run_len(r, c, BLACK, dr, dc);
+            if run == self.win {
+                return false; // 5목 완성 = 승리
+            }
+            if run > self.win {
+                overline = true;
+            }
+        }
+        if overline {
+            return true; // 장목
+        }
+        // 사사/삼삼: 이 수로 새로 생기는 4와 활3의 개수.
+        let mut fours = 0;
+        let mut threes = 0;
+        for (dr, dc) in [(0, 1), (1, 0), (1, 1), (1, -1)] {
+            if self.four_in_dir(r, c, dr, dc) {
+                fours += 1;
+            } else if self.open_three_in_dir(r, c, dr, dc) {
+                threes += 1;
+            }
+        }
+        fours >= 2 || threes >= 2
+    }
+
+    /// (흑이 (r,c)에 놓인 상태) 이 방향에 '4'(한 수로 정확히 5 완성)가 있는가.
+    fn four_in_dir(&self, r: i32, c: i32, dr: i32, dc: i32) -> bool {
+        let w = self.win;
+        for k in -(w)..=w {
+            if k == 0 {
+                continue;
+            }
+            let (er, ec) = (r + dr * k, c + dc * k);
+            if self.get(er, ec) != 0 {
+                continue;
+            }
+            // 임시로 채워 정확히 5가 되는지(장목이면 4로 안 침).
+            let run = self.run_with(er, ec, BLACK, dr, dc);
+            if run == w {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// (r,c)를 빈칸으로 가정하지 않고, (er,ec)에 color가 있다고 가정한 연속 길이.
+    fn run_with(&self, er: i32, ec: i32, color: u8, dr: i32, dc: i32) -> i32 {
+        // (er,ec)는 실제로는 빈칸이지만 'color가 놓였다'고 보고 양방향 연속 계산.
+        let mut cnt = 1;
+        let mut k = 1;
+        while self.get(er + dr * k, ec + dc * k) == color {
+            cnt += 1;
+            k += 1;
+        }
+        let mut k = 1;
+        while self.get(er - dr * k, ec - dc * k) == color {
+            cnt += 1;
+            k += 1;
+        }
+        cnt
+    }
+
+    /// 이 방향에 '활3'(한 수로 열린 4 _BBBB_ 를 만들 수 있는 3)이 있는가.
+    fn open_three_in_dir(&self, r: i32, c: i32, dr: i32, dc: i32) -> bool {
+        let w = self.win;
+        for k in -(w)..=w {
+            if k == 0 {
+                continue;
+            }
+            let (er, ec) = (r + dr * k, c + dc * k);
+            if self.get(er, ec) != 0 {
+                continue;
+            }
+            // (er,ec)에 흑을 놓으면 '열린 4'가 되는가: 연속 정확히 4 + 양끝 빈칸.
+            let run = self.run_with(er, ec, BLACK, dr, dc);
+            if run != w - 1 {
+                continue;
+            }
+            // 양끝이 빈칸인지 확인(열린 4).
+            // run의 양 끝 좌표를 찾는다.
+            let mut hi = 1;
+            while self.get(er + dr * hi, ec + dc * hi) == BLACK {
+                hi += 1;
+            }
+            let mut lo = 1;
+            while self.get(er - dr * lo, ec - dc * lo) == BLACK {
+                lo += 1;
+            }
+            let end_a = self.get(er + dr * hi, ec + dc * hi);
+            let end_b = self.get(er - dr * lo, ec - dc * lo);
+            if end_a == 0 && end_b == 0 {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// 모든 빈칸 중 흑에게 금수인 칸들의 인덱스(r*n+c). UI 표시·차단용.
+    pub fn forbidden_points(&mut self) -> Vec<u32> {
+        if !self.renju {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for i in 0..(self.n * self.n) {
+            if self.cells[i as usize] == 0 {
+                let r = i / self.n;
+                let c = i % self.n;
+                if self.is_forbidden(r, c) {
+                    out.push(i as u32);
+                }
+            }
+        }
+        out
     }
 
     fn has_any_stone(&self) -> bool {
@@ -133,13 +282,18 @@ impl Omok {
     }
 
     /// 후보를 빠른 휴리스틱(공격+수비 가치)으로 정렬해 상위 top_k 반환.
+    /// 렌주: 흑(선) 차례면 금수(장목·사사·삼삼)를 후보에서 제외한다.
     fn ordered(&mut self, color: u8, radius: i32, top_k: usize) -> Vec<i32> {
         let opp = 3 - color;
+        let filter_forbidden = self.renju && color == BLACK;
         let cands = self.candidates(radius);
         let mut scored: Vec<(i64, i32)> = Vec::with_capacity(cands.len());
         for i in cands {
             let r = i / self.n;
             let c = i % self.n;
+            if filter_forbidden && self.is_forbidden(r, c) {
+                continue;
+            }
             let s = self.place_gain(r, c, color) + self.place_gain(r, c, opp);
             scored.push((s, i));
         }
@@ -315,10 +469,15 @@ impl Omok {
         }
         let opp = 3 - color;
         let n = self.n;
+        let filter_forbidden = self.renju && color == BLACK;
         let mut tmp: Vec<i32> = Vec::new();
         for m in self.candidates(1) {
             let r = m / n;
             let c = m % n;
+            // 렌주: 흑은 금수(사사 등)로 강제승을 만들 수 없다.
+            if filter_forbidden && self.is_forbidden(r, c) {
+                continue;
+            }
             let mi = m as usize;
             self.cells[mi] = color;
 

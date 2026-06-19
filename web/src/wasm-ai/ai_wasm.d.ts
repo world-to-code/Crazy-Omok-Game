@@ -30,7 +30,12 @@ export function chess_state(fen: string): string;
  * 오목 최적 수. board: 길이 n*n (0 빈/1 흑/2 백). to_move: 1|2. level: 0 쉬움/1 중간/2 어려움.
  * 반환: 둘 칸 인덱스(r*n+c). 둘 곳이 없으면 -1.
  */
-export function omok_best_move(board: Uint8Array, n: number, win: number, to_move: number, level: number): number;
+export function omok_best_move(board: Uint8Array, n: number, win: number, to_move: number, level: number, renju: number): number;
+
+/**
+ * 렌주 금수(흑 전용) 빈칸 목록을 인덱스(r*n+c) 배열로 반환. renju=false면 빈 배열.
+ */
+export function omok_forbidden(board: Uint8Array, n: number, win: number): Uint32Array;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -41,7 +46,8 @@ export interface InitOutput {
     readonly chess_moves_from: (a: number, b: number, c: number, d: number) => [number, number];
     readonly chess_start: () => [number, number];
     readonly chess_state: (a: number, b: number) => [number, number];
-    readonly omok_best_move: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly omok_best_move: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+    readonly omok_forbidden: (a: number, b: number, c: number, d: number) => [number, number];
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

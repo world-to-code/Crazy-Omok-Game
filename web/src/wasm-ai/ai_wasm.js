@@ -112,13 +112,30 @@ export function chess_state(fen) {
  * @param {number} win
  * @param {number} to_move
  * @param {number} level
+ * @param {number} renju
  * @returns {number}
  */
-export function omok_best_move(board, n, win, to_move, level) {
+export function omok_best_move(board, n, win, to_move, level, renju) {
     const ptr0 = passArray8ToWasm0(board, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.omok_best_move(ptr0, len0, n, win, to_move, level);
+    const ret = wasm.omok_best_move(ptr0, len0, n, win, to_move, level, renju);
     return ret;
+}
+
+/**
+ * 렌주 금수(흑 전용) 빈칸 목록을 인덱스(r*n+c) 배열로 반환. renju=false면 빈 배열.
+ * @param {Uint8Array} board
+ * @param {number} n
+ * @param {number} win
+ * @returns {Uint32Array}
+ */
+export function omok_forbidden(board, n, win) {
+    const ptr0 = passArray8ToWasm0(board, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.omok_forbidden(ptr0, len0, n, win);
+    var v2 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
 }
 function __wbg_get_imports() {
     const import0 = {
@@ -150,8 +167,21 @@ function __wbg_get_imports() {
     };
 }
 
+function getArrayU32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
+}
+
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
 }
 
 let cachedUint8ArrayMemory0 = null;
@@ -240,6 +270,7 @@ function __wbg_finalize_init(instance, module) {
     wasmInstance = instance;
     wasm = instance.exports;
     wasmModule = module;
+    cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();
     return wasm;

@@ -7,11 +7,18 @@ import {
   chessStart,
   chessState,
   ensureAiWasm,
+  terminateAiWorker,
   type ChessStateT,
   type Level,
 } from "../net/aiWasm";
-import { CHESS_GLYPH } from "../types";
+import { CHESS_GLYPH, CHESS_NAME_KR } from "../types";
+import { useViewportWidth } from "../bot/useViewport";
 import Countdown from "../components/Countdown";
+
+// 기물 범례(왼쪽 사이드바): 유니코드 글리프 ↔ 한글 이름.
+const PIECE_LEGEND: { t: string }[] = [
+  { t: "k" }, { t: "q" }, { t: "r" }, { t: "b" }, { t: "n" }, { t: "p" },
+];
 
 const LEVEL_NAME = ["쉬움", "중간", "어려움", "헬"];
 const TURN_MS = 45_000;
@@ -43,6 +50,9 @@ export default function BotChess() {
     });
   }, []);
 
+  // 방을 나가거나 페이지를 닫으면 AI 워커를 종료(백그라운드 계산 잔존 방지).
+  useEffect(() => () => terminateAiWorker(), []);
+
   const commit = useCallback(
     (newFen: string, newState: ChessStateT, san: string, from: [number, number], to: [number, number]) => {
       setFen(newFen);
@@ -73,6 +83,9 @@ export default function BotChess() {
     if (st && st.status === "playing" && st.turn === humanColor) setDeadline(Date.now() + TURN_MS);
     else setDeadline(null);
   }, [st, humanColor]);
+
+  // 훅은 조기 반환보다 위에서 무조건 호출돼야 한다.
+  const vw = useViewportWidth();
 
   if (!st || !fen) {
     return (
@@ -125,13 +138,15 @@ export default function BotChess() {
       const piece = st.board[r]?.[f] ?? null;
       const isLight = (r + f) % 2 === 0;
       const isOpt = optionSet.has(k);
+      const isCapture = isOpt && !!piece; // 옵션 칸에 상대 기물 = 잡을 수 있음
       const isSel = selKey === k;
       const isLast = !!lastMove && ((lastMove[0][0] === r && lastMove[0][1] === f) || (lastMove[1][0] === r && lastMove[1][1] === f));
       const selectable = humanTurn && (pieceSet.has(k) || isOpt);
       let shadow = "";
       if (isLast) shadow += "inset 0 0 0 4px rgba(224,164,88,.28);";
       if (isSel) shadow += "inset 0 0 0 4px #f0b96b;";
-      if (isOpt) shadow += "inset 0 0 0 3px rgba(155,224,164,.55);";
+      if (isCapture) shadow += "inset 0 0 0 3px rgba(239,68,68,.9);";
+      else if (isOpt) shadow += "inset 0 0 0 3px rgba(155,224,164,.55);";
       cells.push(
         <div
           key={k}
@@ -163,6 +178,36 @@ export default function BotChess() {
           {isOpt && !piece && (
             <span style={{ width: "26%", height: "26%", borderRadius: "50%", background: "rgba(155,224,164,.7)" }} />
           )}
+          {isCapture && (
+            <>
+              {/* 잡을 수 있는 상대 기물: 빨간 링 + 모서리 ⚔ 표시 */}
+              <span
+                style={{
+                  position: "absolute",
+                  inset: "7%",
+                  borderRadius: "50%",
+                  border: "3px solid rgba(239,68,68,.95)",
+                  boxSizing: "border-box",
+                  pointerEvents: "none",
+                  zIndex: 2,
+                }}
+              />
+              <span
+                style={{
+                  position: "absolute",
+                  top: "3%",
+                  right: "5%",
+                  fontSize: "4cqw",
+                  lineHeight: 1,
+                  pointerEvents: "none",
+                  zIndex: 3,
+                  filter: "drop-shadow(0 1px 1px rgba(0,0,0,.5))",
+                }}
+              >
+                ⚔️
+              </span>
+            </>
+          )}
         </div>,
       );
     }
@@ -180,8 +225,13 @@ export default function BotChess() {
   const over = st.status !== "playing";
   const humanWon = st.winner === humanColor;
 
+  // 화면 가로 70%를 한 변으로(체스판은 8칸 정사각이라 자동 1:1).
+  const boardSize = Math.max(240, Math.round(vw * 0.7));
+  // 왼쪽 여백에 범례를 둘 공간이 충분할 때만 표시.
+  const showLegend = (vw - boardSize) / 2 >= 170;
+
   return (
-    <div className="game">
+    <div className="game" style={{ width: "100%", marginLeft: 0 }}>
       <div className="game-bar card">
         <button className="back" onClick={() => setScreen("home")}>
           ← 나가기
@@ -197,8 +247,57 @@ export default function BotChess() {
         <div className="rule-info">🤖 {LEVEL_NAME[level]}</div>
       </div>
 
-      <div className="game-body" style={{ justifyContent: "center" }}>
-        <div style={{ width: "100%", maxWidth: 560, margin: "0 auto" }}>
+      {/* 풀블리드: 뷰포트 전체 폭을 화면 정중앙에 두고 그 안에서 70% 보드를 중앙 정렬.
+          왼쪽 여백에 기물 범례 사이드바. */}
+      <div
+        style={{
+          width: `${vw}px`,
+          marginLeft: `calc(50% - ${vw / 2}px)`,
+          marginTop: 12,
+          position: "relative",
+          display: "flex",
+          justifyContent: "center",
+        }}
+      >
+        {showLegend && (
+          <aside
+            style={{
+              position: "absolute",
+              left: 16,
+              top: 0,
+              width: 150,
+              background: "#1c1512",
+              border: "1px solid #2f251f",
+              borderRadius: 14,
+              padding: "14px 14px",
+            }}
+          >
+            <div style={{ fontSize: 11, letterSpacing: ".15em", color: "#8a7c6c", marginBottom: 10, fontFamily: "monospace" }}>
+              기물
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {PIECE_LEGEND.map(({ t }) => (
+                <div key={t} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span
+                    style={{
+                      fontSize: 26,
+                      lineHeight: 1,
+                      width: 26,
+                      textAlign: "center",
+                      color: "#faf4e6",
+                      WebkitTextStroke: "1px #6b4a2e",
+                    }}
+                  >
+                    {CHESS_GLYPH[t]}
+                  </span>
+                  <span style={{ color: "#8a7c6c" }}>:</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "#f3ebdd" }}>{CHESS_NAME_KR[t]}</span>
+                </div>
+              ))}
+            </div>
+          </aside>
+        )}
+        <div style={{ width: `${boardSize}px` }}>
           <div
             style={{
               display: "grid",

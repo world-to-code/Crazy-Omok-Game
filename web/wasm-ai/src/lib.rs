@@ -18,12 +18,22 @@ use clock::now_ms;
 /// 오목 최적 수. board: 길이 n*n (0 빈/1 흑/2 백). to_move: 1|2. level: 0 쉬움/1 중간/2 어려움.
 /// 반환: 둘 칸 인덱스(r*n+c). 둘 곳이 없으면 -1.
 #[wasm_bindgen]
-pub fn omok_best_move(board: &[u8], n: i32, win: i32, to_move: u8, level: u8) -> i32 {
+pub fn omok_best_move(board: &[u8], n: i32, win: i32, to_move: u8, level: u8, renju: u8) -> i32 {
     if n <= 0 || board.len() != (n * n) as usize {
         return -1;
     }
-    let mut g = omok::Omok::new(board.to_vec(), n, win);
+    let mut g = omok::Omok::new(board.to_vec(), n, win, renju != 0);
     g.best_move(to_move, level)
+}
+
+/// 렌주 금수(흑 전용) 빈칸 목록을 인덱스(r*n+c) 배열로 반환. renju=false면 빈 배열.
+#[wasm_bindgen]
+pub fn omok_forbidden(board: &[u8], n: i32, win: i32) -> Vec<u32> {
+    if n <= 0 || board.len() != (n * n) as usize {
+        return Vec::new();
+    }
+    let mut g = omok::Omok::new(board.to_vec(), n, win, true);
+    g.forbidden_points()
 }
 
 // ===== 체스 =====
