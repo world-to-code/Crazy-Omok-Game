@@ -4,6 +4,31 @@
 /**
  * AI 최적 수 계산 후 적용. level: 0 쉬움/1 중간/2 어려움/3 헬.
  */
+export function checkers_ai(pos: string, level: number): string;
+
+/**
+ * (fr,fc)→(tr,tc) 수를 적용. 같은 끝칸에 여러 경로가 있으면 가장 많이 잡는 수.
+ */
+export function checkers_apply(pos: string, fr: number, fc: number, tr: number, tc: number): string;
+
+/**
+ * (r,c) 말의 합법 전체 수 목록 JSON: [{to,path,caps}].
+ */
+export function checkers_piece_moves(pos: string, r: number, c: number): string;
+
+/**
+ * 시작 위치 문자열.
+ */
+export function checkers_start(): string;
+
+/**
+ * 현재 상태 JSON.
+ */
+export function checkers_state(pos: string): string;
+
+/**
+ * AI 최적 수 계산 후 적용. level: 0 쉬움/1 중간/2 어려움/3 헬.
+ */
 export function chess_ai(fen: string, level: number): string;
 
 /**
@@ -41,6 +66,11 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly checkers_ai: (a: number, b: number, c: number) => [number, number];
+    readonly checkers_apply: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly checkers_piece_moves: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly checkers_start: () => [number, number];
+    readonly checkers_state: (a: number, b: number) => [number, number];
     readonly chess_ai: (a: number, b: number, c: number) => [number, number];
     readonly chess_apply: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly chess_moves_from: (a: number, b: number, c: number, d: number) => [number, number];

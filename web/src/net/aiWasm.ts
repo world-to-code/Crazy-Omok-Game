@@ -2,6 +2,10 @@
 // - 규칙/즉시 질의(체스 상태·합법수·수 적용)는 메인 스레드에서 동기 호출.
 // - 무거운 탐색(오목/체스 AI)은 Web Worker에서 비동기로(최대 5초) 처리.
 import init, {
+  checkers_apply,
+  checkers_piece_moves,
+  checkers_start,
+  checkers_state,
   chess_apply,
   chess_moves_from,
   chess_start,
@@ -74,6 +78,49 @@ export function chessApply(
   return JSON.parse(chess_apply(fen, fr, ff, tr, tf));
 }
 
+// ===== 체커(드래프트) =====
+export interface CheckersStateT {
+  board: number[][]; // 8x8, 0 빈 · 1 흑말 · 2 백말 · 3 흑킹 · 4 백킹
+  turn: "b" | "w";
+  status: "playing" | "win" | "draw";
+  winner: "b" | "w" | null;
+  mustCapture: boolean;
+  movers: [number, number][];
+}
+export interface CheckersMoveT {
+  to: [number, number];
+  path: [number, number][];
+  caps: [number, number][];
+}
+export interface CheckersApplyT {
+  ok: boolean;
+  pos: string;
+  from: [number, number];
+  to: [number, number];
+  path: [number, number][];
+  caps: [number, number][];
+  promoted: boolean;
+  state: CheckersStateT;
+}
+export function checkersStart(): string {
+  return checkers_start();
+}
+export function checkersState(pos: string): CheckersStateT {
+  return JSON.parse(checkers_state(pos));
+}
+export function checkersPieceMoves(pos: string, r: number, c: number): CheckersMoveT[] {
+  return JSON.parse(checkers_piece_moves(pos, r, c));
+}
+export function checkersApply(
+  pos: string,
+  fr: number,
+  fc: number,
+  tr: number,
+  tc: number,
+): CheckersApplyT {
+  return JSON.parse(checkers_apply(pos, fr, fc, tr, tc));
+}
+
 /** 렌주 금수(흑) 칸 인덱스 목록(동기, 메인스레드). */
 export function omokForbidden(board: Uint8Array, n: number, win: number): number[] {
   return Array.from(omok_forbidden(board, n, win));
@@ -143,5 +190,14 @@ export function chessAi(fen: string, level: Level): Promise<ChessApplyT> {
   return new Promise((resolve) => {
     pending.set(id, (res) => resolve(JSON.parse(res as string)));
     getWorker().postMessage({ id, kind: "chess", fen, level });
+  });
+}
+
+/** 체커 AI 수 계산 + 적용 결과. */
+export function checkersAi(pos: string, level: Level): Promise<CheckersApplyT> {
+  const id = ++seq;
+  return new Promise((resolve) => {
+    pending.set(id, (res) => resolve(JSON.parse(res as string)));
+    getWorker().postMessage({ id, kind: "checkers", pos, level });
   });
 }

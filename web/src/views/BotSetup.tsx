@@ -11,13 +11,14 @@ const LEVELS: { v: 0 | 1 | 2 | 3; emoji: string; name: string; desc: string }[] 
 
 export default function BotSetup() {
   const { state, setScreen, startBot } = useGame();
-  const game = state.selectedGame === "chess" ? "chess" : "omok";
+  const game =
+    state.selectedGame === "chess" ? "chess" : state.selectedGame === "checkers" ? "checkers" : "omok";
   const [level, setLevel] = useState<0 | 1 | 2 | 3>(1);
   const [humanFirst, setHumanFirst] = useState(true);
 
-  const gameLabel = game === "chess" ? "체스" : "오목";
-  const firstLabel = game === "chess" ? "백 (선공)" : "흑 (선공)";
-  const secondLabel = game === "chess" ? "흑 (후공)" : "백 (후공)";
+  const gameLabel = game === "chess" ? "체스" : game === "checkers" ? "체커" : "오목";
+  const firstLabel = game === "chess" ? "백 (선공)" : game === "checkers" ? "흑 (선공)" : "흑 (선공)";
+  const secondLabel = game === "chess" ? "흑 (후공)" : game === "checkers" ? "백 (후공)" : "백 (후공)";
 
   return (
     <div className="home card">

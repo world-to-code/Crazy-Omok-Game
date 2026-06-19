@@ -42,12 +42,20 @@ export default function Home() {
           <div className="game-title">집단지성 체스</div>
           <div className="game-sub">팀 투표로 두는 체스 · 팀당 2~50명</div>
         </button>
+        <button
+          className={`game-card${g === "checkers" ? " active" : ""}`}
+          onClick={() => selectGame("checkers")}
+        >
+          <div className="game-emoji">⛀⛂</div>
+          <div className="game-title">체커 (드래프트)</div>
+          <div className="game-sub">봇 전용 · 헬은 사실상 무패</div>
+        </button>
       </div>
 
       <div className="home-buttons">
         {g !== "flick" && (
           <button className="big primary" onClick={() => setScreen("botSetup")}>
-            🤖 봇과 대결 ({g === "chess" ? "체스" : "오목"})
+            🤖 봇과 대결 ({g === "chess" ? "체스" : g === "checkers" ? "체커" : "오목"})
           </button>
         )}
         <button className="big" onClick={() => setScreen("create")}>

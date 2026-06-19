@@ -2,6 +2,110 @@
 
 /**
  * AI 최적 수 계산 후 적용. level: 0 쉬움/1 중간/2 어려움/3 헬.
+ * @param {string} pos
+ * @param {number} level
+ * @returns {string}
+ */
+export function checkers_ai(pos, level) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(pos, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.checkers_ai(ptr0, len0, level);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * (fr,fc)→(tr,tc) 수를 적용. 같은 끝칸에 여러 경로가 있으면 가장 많이 잡는 수.
+ * @param {string} pos
+ * @param {number} fr
+ * @param {number} fc
+ * @param {number} tr
+ * @param {number} tc
+ * @returns {string}
+ */
+export function checkers_apply(pos, fr, fc, tr, tc) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(pos, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.checkers_apply(ptr0, len0, fr, fc, tr, tc);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * (r,c) 말의 합법 전체 수 목록 JSON: [{to,path,caps}].
+ * @param {string} pos
+ * @param {number} r
+ * @param {number} c
+ * @returns {string}
+ */
+export function checkers_piece_moves(pos, r, c) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(pos, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.checkers_piece_moves(ptr0, len0, r, c);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * 시작 위치 문자열.
+ * @returns {string}
+ */
+export function checkers_start() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.checkers_start();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * 현재 상태 JSON.
+ * @param {string} pos
+ * @returns {string}
+ */
+export function checkers_state(pos) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(pos, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.checkers_state(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * AI 최적 수 계산 후 적용. level: 0 쉬움/1 중간/2 어려움/3 헬.
  * @param {string} fen
  * @param {number} level
  * @returns {string}

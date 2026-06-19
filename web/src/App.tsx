@@ -12,6 +12,7 @@ import JoinLink from "./views/JoinLink";
 import BotSetup from "./views/BotSetup";
 import BotOmok from "./views/BotOmok";
 import BotChess from "./views/BotChess";
+import BotCheckers from "./views/BotCheckers";
 
 export default function App() {
   const { state, clearError } = useGame();
@@ -61,5 +62,8 @@ function render(screen: string, game: string) {
 
 function BotGameRouter() {
   const { state } = useGame();
-  return state.bot?.game === "chess" ? <BotChess /> : <BotOmok />;
+  const g = state.bot?.game;
+  if (g === "chess") return <BotChess />;
+  if (g === "checkers") return <BotCheckers />;
+  return <BotOmok />;
 }
