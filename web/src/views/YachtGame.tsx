@@ -89,10 +89,15 @@ export default function YachtGame() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yachtEvent?.seq]);
 
-  // 스냅샷 변경 → 애니메이션 중이 아니면 즉시 주사위 반영.
+  // 스냅샷 변경 → 애니메이션 중이 아니면 즉시 반영.
+  // 내 차례 시작(아직 안 굴림)이면 던질 주사위를 컵 안에 넣어 둔다(흔들면 같이 움직임).
   useEffect(() => {
-    if (!readyRef.current || animatingRef.current) return;
-    if (yacht) sceneRef.current?.setDice(yacht.dice, yacht.keep);
+    if (!readyRef.current || animatingRef.current || !yacht) return;
+    if (yacht.turn === myId && yacht.phase === "roll" && !yacht.rolled) {
+      sceneRef.current?.loadCup(yacht.dice, yacht.keep, true);
+    } else {
+      sceneRef.current?.setDice(yacht.dice, yacht.keep);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yacht]);
 
@@ -110,9 +115,10 @@ export default function YachtGame() {
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!isMyTurn || (yacht?.rollsLeft ?? 0) <= 0 || animatingRef.current) return;
+      if (yacht) sceneRef.current?.loadCup(yacht.dice, yacht.keep, !yacht.rolled); // 던질 주사위를 컵 안으로
       shakeRef.current = { active: true, lastX: e.clientX, lastY: e.clientY };
     },
-    [isMyTurn, yacht?.rollsLeft],
+    [isMyTurn, yacht],
   );
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const sh = shakeRef.current;
@@ -223,7 +229,7 @@ export default function YachtGame() {
         <SoundToggle />
       </div>
 
-      <div style={{ display: "flex", gap: 14, height: "min(76vh, 820px)", marginTop: 8, width: `${vw}px`, marginLeft: `calc(50% - ${vw / 2}px)`, boxSizing: "border-box", padding: "0 20px" }}>
+      <div style={{ display: "flex", flexDirection: "row-reverse", gap: 14, height: "min(76vh, 820px)", marginTop: 8, width: `${vw}px`, marginLeft: `calc(50% - ${vw / 2}px)`, boxSizing: "border-box", padding: "0 20px" }}>
         <div
           ref={wrapRef}
           style={{ position: "relative", flex: 1, minWidth: 0, borderRadius: 14, overflow: "hidden", background: "radial-gradient(circle at 50% 30%, #1c2436, #0c0f16)", touchAction: "none" }}
@@ -271,13 +277,14 @@ export default function YachtGame() {
           )}
         </div>
 
-        {/* 점수판 (N인) + 채팅 */}
-        <aside style={{ width: Math.min(120 + order.length * 56, 380), flexShrink: 0, display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
-          <div className="card scl" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 10px" }}>
-          <div style={{ fontSize: 11, color: "#9a8b76", marginBottom: 6, lineHeight: 1.4 }}>
+        {/* 점수판 (N인, 왼쪽 크게) + 채팅 */}
+        <aside style={{ width: Math.min(170 + order.length * 64, 480), flexShrink: 0, display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+          <div className="card scl" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 14px" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#f0d9a0", marginBottom: 4 }}>📋 점수표</div>
+          <div style={{ fontSize: 12, color: "#9a8b76", marginBottom: 8, lineHeight: 1.4 }}>
             내 차례에 기록할 칸을 클릭하세요. <span style={{ color: "#7fd18c" }}>+초록</span>은 지금 기록 시 받을 점수.
           </div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
             <thead>
               <tr style={{ color: "#a99a86" }}>
                 <th style={{ textAlign: "left", padding: "4px 2px" }}>족보</th>
@@ -314,10 +321,14 @@ export default function YachtGame() {
               </tr>
             </tbody>
           </table>
-          <YachtGuide defaultOpen={false} />
           </div>
           <Chat />
         </aside>
+      </div>
+
+      {/* 게임 방법·족보 설명 (점수표와 분리) */}
+      <div className="card" style={{ width: `${vw}px`, marginLeft: `calc(50% - ${vw / 2}px)`, boxSizing: "border-box", padding: "8px 20px", marginTop: 10 }}>
+        <YachtGuide defaultOpen={false} />
       </div>
 
       {over && (

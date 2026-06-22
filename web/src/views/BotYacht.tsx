@@ -91,9 +91,10 @@ export default function BotYacht() {
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!isHuman || st.rollsLeft <= 0 || animatingRef.current) return;
+      sceneRef.current?.loadCup(st.dice, st.keep, !st.rolled); // 던질 주사위를 컵 안으로
       shakeRef.current = { active: true, lastX: e.clientX, lastY: e.clientY, dist: 0 };
     },
-    [isHuman, st.rollsLeft],
+    [isHuman, st.rollsLeft, st.dice, st.keep, st.rolled],
   );
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const sh = shakeRef.current;
@@ -140,6 +141,12 @@ export default function BotYacht() {
     [isHuman, st],
   );
 
+  // 내 차례 시작(아직 안 굴림) → 던질 주사위를 컵 안에 넣어 둔다(흔들면 같이 움직임).
+  useEffect(() => {
+    if (!ready || !isHuman || st.phase !== "roll" || st.rolled || animatingRef.current) return;
+    sceneRef.current?.loadCup(st.dice, st.keep, true);
+  }, [ready, isHuman, st.phase, st.rolled, st.dice, st.keep]);
+
   // 봇 자동 진행.
   useEffect(() => {
     if (!ready || st.turn !== 1 || st.phase === "over" || animatingRef.current) return;
@@ -149,6 +156,7 @@ export default function BotYacht() {
       if (cancelled || !sceneRef.current) return;
       if (!st.rolled) {
         // 첫 굴림(자동 흔들기 연출).
+        sceneRef.current.loadCup(st.dice, st.keep, true);
         sceneRef.current.setShake(0.9);
         await delay(450);
         if (cancelled) return;
@@ -157,6 +165,7 @@ export default function BotYacht() {
       }
       if (st.rollsLeft > 0) {
         const keep = botKeep(st.dice);
+        sceneRef.current.loadCup(st.dice, keep, false);
         sceneRef.current.setShake(0.9);
         await delay(400);
         if (cancelled) return;
@@ -214,8 +223,8 @@ export default function BotYacht() {
         <SoundToggle />
       </div>
 
-      <div style={{ display: "flex", gap: 14, height: "min(76vh, 820px)", marginTop: 8, width: `${vw}px`, marginLeft: `calc(50% - ${vw / 2}px)`, boxSizing: "border-box", padding: "0 20px" }}>
-        {/* 3D 캔버스 */}
+      <div style={{ display: "flex", flexDirection: "row-reverse", gap: 14, height: "min(76vh, 820px)", marginTop: 8, width: `${vw}px`, marginLeft: `calc(50% - ${vw / 2}px)`, boxSizing: "border-box", padding: "0 20px" }}>
+        {/* 3D 캔버스 (오른쪽) */}
         <div
           ref={wrapRef}
           style={{ position: "relative", flex: 1, minWidth: 0, borderRadius: 14, overflow: "hidden", background: "radial-gradient(circle at 50% 30%, #1c2436, #0c0f16)", touchAction: "none" }}
@@ -271,12 +280,13 @@ export default function BotYacht() {
           )}
         </div>
 
-        {/* 점수판 */}
-        <aside className="card scl" style={{ width: 340, flexShrink: 0, overflowY: "auto", padding: "10px 12px" }}>
-          <div style={{ fontSize: 11.5, color: "#9a8b76", marginBottom: 6, lineHeight: 1.45 }}>
+        {/* 점수판 (왼쪽, 크게) */}
+        <aside className="card scl" style={{ width: 420, flexShrink: 0, overflowY: "auto", padding: "14px 16px" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#f0d9a0", marginBottom: 4 }}>📋 점수표</div>
+          <div style={{ fontSize: 12.5, color: "#9a8b76", marginBottom: 8, lineHeight: 1.45 }}>
             기록할 칸을 클릭하세요. <span style={{ color: "#7fd18c" }}>+초록 숫자</span>는 지금 기록하면 받는 점수예요.
           </div>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14.5 }}>
             <thead>
               <tr style={{ color: "#a99a86" }}>
                 <th style={{ textAlign: "left", padding: "4px 2px" }}>족보</th>
@@ -323,8 +333,12 @@ export default function BotYacht() {
               </tr>
             </tbody>
           </table>
-          <YachtGuide />
         </aside>
+      </div>
+
+      {/* 게임 방법·족보 설명 (점수표와 분리) */}
+      <div className="card" style={{ width: `${vw}px`, marginLeft: `calc(50% - ${vw / 2}px)`, boxSizing: "border-box", padding: "8px 20px", marginTop: 10 }}>
+        <YachtGuide defaultOpen={false} />
       </div>
 
       {over && (

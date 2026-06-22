@@ -20,6 +20,9 @@ const TOP_EULER: Record<number, [number, number, number]> = {
 interface DieRec {
   mesh: THREE.Mesh;
   spot: THREE.Vector3; // 테이블 위 제자리
+  inCup: boolean; // 컵 안에서 대기/흔들림 중
+  cupOff: THREE.Vector3; // 컵 내부 기준 위치
+  rPhase: number; // 흔들림 위상(주사위마다 다르게)
 }
 
 interface ThrowAnim {
@@ -123,8 +126,15 @@ export class YachtScene {
       mesh.position.copy(spot);
       this.setTop(mesh, 1, 0);
       this.scene.add(mesh);
-      this.dice.push({ mesh, spot });
+      this.dice.push({ mesh, spot, inCup: false, cupOff: new THREE.Vector3(), rPhase: i * 1.7 });
     }
+  }
+
+  // 컵 내부 무작위 위치(컵 원점 기준).
+  private randCupOff(): THREE.Vector3 {
+    const ang = Math.random() * Math.PI * 2;
+    const rad = Math.random() * 0.4;
+    return new THREE.Vector3(Math.cos(ang) * rad, 0.55 + Math.random() * 0.5, 0.2 + Math.sin(ang) * rad);
   }
 
   // 주사위 mesh를 value가 윗면이 되도록 회전(+추가 yaw).
@@ -138,10 +148,27 @@ export class YachtScene {
   // 현재 주사위 상태 즉시 반영(킵된 건 제자리, 전부 테이블 위).
   setDice(values: number[], keep: boolean[]) {
     this.dice.forEach((d, i) => {
+      d.inCup = false;
       d.mesh.position.copy(d.spot);
       // 킵 표시: 살짝 들어올리고 금빛(테두리). 여기선 살짝 띄움 + 회전 고정.
       d.mesh.position.y = keep[i] ? DIE / 2 + 0.18 : DIE / 2;
       this.setTop(d.mesh, values[i] || 1, 0);
+    });
+  }
+
+  // 굴리기 전: 던질 주사위(!keep, firstRoll이면 전부)를 컵 안에 넣는다. 킵된 건 테이블.
+  loadCup(values: number[], keep: boolean[], firstRoll: boolean) {
+    this.dice.forEach((d, i) => {
+      if (firstRoll || !keep[i]) {
+        d.inCup = true;
+        d.cupOff = this.randCupOff();
+        this.setTop(d.mesh, values[i] || 1, Math.random() * Math.PI);
+      } else {
+        d.inCup = false;
+        d.mesh.position.copy(d.spot);
+        d.mesh.position.y = DIE / 2 + 0.18;
+        this.setTop(d.mesh, values[i] || 1, 0);
+      }
     });
   }
 
@@ -155,12 +182,17 @@ export class YachtScene {
     const items: ThrowAnim["items"] = [];
     this.dice.forEach((d, i) => {
       const animate = firstRoll || !keep[i];
+      const wasInCup = d.inCup;
+      d.inCup = false;
       if (!animate) {
         d.mesh.position.copy(d.spot);
         d.mesh.position.y = DIE / 2 + 0.18; // 킵된 건 살짝 띄움
         return;
       }
-      const from = new THREE.Vector3(CUP.x + (Math.random() - 0.5) * 0.6, 1.4, CUP.z);
+      // 컵 안에 있던 주사위는 그 자리에서, 아니면 컵 입구에서 쏟아진다.
+      const from = wasInCup
+        ? d.mesh.position.clone()
+        : new THREE.Vector3(CUP.x + (Math.random() - 0.5) * 0.6, 1.4, CUP.z);
       items.push({
         die: d,
         from,
@@ -202,6 +234,26 @@ export class YachtScene {
     } else {
       this.cup.position.set(CUP.x, 0, CUP.z);
       this.cup.rotation.set(0, 0, 0);
+    }
+
+    // 컵 안 주사위: 컵을 따라 움직이고, 흔들면 달그락거린다.
+    if (!this.throwAnim) {
+      const sh = this.shakeLevel;
+      for (const d of this.dice) {
+        if (!d.inCup) continue;
+        const jx = Math.sin(t * 38 + d.rPhase) * 0.18 * sh;
+        const jy = Math.abs(Math.sin(t * 30 + d.rPhase)) * 0.22 * sh;
+        const jz = Math.cos(t * 34 + d.rPhase * 1.3) * 0.16 * sh;
+        d.mesh.position.set(
+          this.cup.position.x + d.cupOff.x + jx,
+          this.cup.position.y + d.cupOff.y + jy,
+          this.cup.position.z + d.cupOff.z + jz,
+        );
+        if (sh > 0.02) {
+          d.mesh.rotation.x += (4 + d.rPhase) * sh * dt;
+          d.mesh.rotation.z += (3 + d.rPhase * 0.7) * sh * dt;
+        }
+      }
     }
 
     if (this.throwAnim) {
