@@ -293,6 +293,24 @@ export type ServerMsg =
     }
   | { type: "YutThrown"; by: string; result: YutThrowInfo; power: number }
   | { type: "YutMoved"; by: string; throw_index: number; key: string; route: string }
+  | {
+      type: "YachtSnapshot";
+      settings: RoomSettings;
+      players: PlayerInfo[];
+      order: string[];
+      status: string;
+      current_turn: string | null;
+      deadline_ms: number | null;
+      server_now_ms: number;
+      dice: number[];
+      keep: boolean[];
+      rolls_left: number;
+      rolled: boolean;
+      scores: (number | null)[][];
+      phase: string; // roll | over
+      winner: string | null;
+    }
+  | { type: "YachtRolled"; by: string; dice: number[]; keep: boolean[]; first_roll: boolean }
   | { type: "FlickDraft"; options: string[] }
   | { type: "FlickAiming"; owner: string; angle: number; power: number }
   | {
@@ -352,4 +370,7 @@ export type ClientMsg =
   | { type: "FlickAiming"; angle: number; power: number }
   | { type: "YutThrow"; power: number }
   | { type: "YutMove"; throw_index: number; key: string; route: string }
-  | { type: "SetZodiac"; zodiac: string };
+  | { type: "SetZodiac"; zodiac: string }
+  | { type: "YachtRoll" }
+  | { type: "YachtKeep"; index: number }
+  | { type: "YachtScore"; category: number };

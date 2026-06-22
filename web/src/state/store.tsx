@@ -37,7 +37,7 @@ export type Screen =
 
 // 봇전(로컬, 서버 없음) 설정.
 export interface BotConfig {
-  game: "omok" | "chess" | "checkers" | "yut";
+  game: "omok" | "chess" | "checkers" | "yut" | "yacht";
   level: 0 | 1 | 2 | 3; // 쉬움 · 중간 · 어려움 · 헬
   humanFirst: boolean; // 오목=사람 흑(선), 체스/체커=사람이 선공
   zodiac?: string; // 윷놀이: 사람이 고른 12지신 id
@@ -69,8 +69,8 @@ export interface GameState {
   error: string | null;
   linkCode: string | null;
   // 게임 종류
-  game: string; // 현재 방의 게임 ("omok" | "flick" | "chess" | "checkers" | "yut")
-  selectedGame: "omok" | "flick" | "chess" | "checkers" | "yut"; // 메인에서 고른 게임
+  game: string; // 현재 방의 게임 ("omok" | "flick" | "chess" | "checkers" | "yut" | "yacht")
+  selectedGame: "omok" | "flick" | "chess" | "checkers" | "yut" | "yacht"; // 메인에서 고른 게임
   bot: BotConfig | null; // 봇전 진행 중이면 설정
   // 체스
   chess: {
@@ -118,6 +118,19 @@ export interface GameState {
     | { seq: number; kind: "throw"; by: string; result: YutThrowInfo; power: number }
     | { seq: number; kind: "move"; by: string; throwIndex: number; key: string; route: string }
     | null;
+  // 요트(주사위, 멀티)
+  yacht: {
+    order: string[];
+    turn: string | null;
+    dice: number[];
+    keep: boolean[];
+    rollsLeft: number;
+    rolled: boolean;
+    scores: (number | null)[][];
+    phase: string; // roll | over
+    winner: string | null;
+  } | null;
+  yachtEvent: { seq: number; by: string; dice: number[]; keep: boolean[]; firstRoll: boolean } | null;
 }
 
 const initial: GameState = {
@@ -161,6 +174,8 @@ const initial: GameState = {
   othersAim: null,
   yut: null,
   yutEvent: null,
+  yacht: null,
+  yachtEvent: null,
 };
 
 const key = (x: number, y: number) => `${x},${y}`;
@@ -180,7 +195,7 @@ type Action =
   | { kind: "connected"; value: boolean }
   | { kind: "screen"; screen: Screen }
   | { kind: "linkJoin"; code: string }
-  | { kind: "selectGame"; game: "omok" | "flick" | "chess" | "checkers" | "yut" }
+  | { kind: "selectGame"; game: "omok" | "flick" | "chess" | "checkers" | "yut" | "yacht" }
   | { kind: "startBot"; cfg: BotConfig }
   | { kind: "flickApply" }
   | { kind: "clearError" }
@@ -248,6 +263,8 @@ const IN_ROOM_MSGS = new Set([
   "YutSnapshot",
   "YutThrown",
   "YutMoved",
+  "YachtSnapshot",
+  "YachtRolled",
 ]);
 
 function applyMsg(s: GameState, m: ServerMsg): GameState {
@@ -506,6 +523,39 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
           route: m.route,
         },
       };
+    case "YachtSnapshot": {
+      const screen = screenFor(m.status, s.screen);
+      return {
+        ...s,
+        settings: m.settings,
+        mode: m.settings.mode,
+        game: "yacht",
+        players: m.players,
+        order: m.order,
+        status: m.status,
+        currentTurn: m.current_turn,
+        deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
+        winner: m.winner,
+        screen,
+        code: m.settings.code,
+        yacht: {
+          order: m.order,
+          turn: m.current_turn,
+          dice: m.dice,
+          keep: m.keep,
+          rollsLeft: m.rolls_left,
+          rolled: m.rolled,
+          scores: m.scores,
+          phase: m.phase,
+          winner: m.winner,
+        },
+      };
+    }
+    case "YachtRolled":
+      return {
+        ...s,
+        yachtEvent: { seq: (s.yachtEvent?.seq ?? 0) + 1, by: m.by, dice: m.dice, keep: m.keep, firstRoll: m.first_roll },
+      };
   }
   return s;
 }
@@ -543,7 +593,7 @@ interface Ctx {
   state: GameState;
   send: (m: ClientMsg) => void;
   setScreen: (s: Screen) => void;
-  selectGame: (g: "omok" | "flick" | "chess" | "checkers" | "yut") => void;
+  selectGame: (g: "omok" | "flick" | "chess" | "checkers" | "yut" | "yacht") => void;
   startBot: (cfg: BotConfig) => void;
   applyFlick: () => void;
   returnToLobby: () => void;
@@ -666,7 +716,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   // dispatch는 안정적이므로 콜백들도 안정적. ctx는 state가 바뀔 때만 새로 만든다.
   const setScreen = useCallback((screen: Screen) => dispatch({ kind: "screen", screen }), []);
-  const selectGame = useCallback((game: "omok" | "flick" | "chess" | "checkers" | "yut") => dispatch({ kind: "selectGame", game }), []);
+  const selectGame = useCallback((game: "omok" | "flick" | "chess" | "checkers" | "yut" | "yacht") => dispatch({ kind: "selectGame", game }), []);
   const startBot = useCallback((cfg: BotConfig) => dispatch({ kind: "startBot", cfg }), []);
   const applyFlick = useCallback(() => dispatch({ kind: "flickApply" }), []);
   const returnToLobby = useCallback(() => send({ type: "ReturnToLobby" }), [send]);

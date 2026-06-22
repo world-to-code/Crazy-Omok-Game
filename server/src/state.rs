@@ -54,6 +54,7 @@ pub enum GameKind {
     Flick,
     Chess,
     Yut,
+    Yacht,
 }
 
 impl GameKind {
@@ -63,6 +64,7 @@ impl GameKind {
             GameKind::Flick => "flick",
             GameKind::Chess => "chess",
             GameKind::Yut => "yut",
+            GameKind::Yacht => "yacht",
         }
     }
 }
@@ -109,6 +111,8 @@ pub struct Room {
     pub chess: Option<crate::chess::ChessGame>,
     /// 윷놀이 게임 상태 (game == Yut 일 때만 Some).
     pub yut: Option<crate::yut::YutGame>,
+    /// 요트(주사위) 게임 상태 (game == Yacht 일 때만 Some).
+    pub yacht: Option<crate::yacht::YachtGame>,
     pub players: Vec<Player>,
     pub order: Vec<Uuid>,
     pub turn_idx: usize,
@@ -354,6 +358,38 @@ impl Room {
                 winner,
                 voters,
                 voted,
+            };
+        }
+        if self.game == GameKind::Yacht {
+            use crate::yacht::Phase;
+            let (dice, keep, rolls_left, rolled, scores, current_turn, phase, winner) = match &self.yacht {
+                Some(y) => (
+                    y.dice.to_vec(),
+                    y.keep.to_vec(),
+                    y.rolls_left,
+                    y.rolled,
+                    y.scores_flat(),
+                    if y.phase == Phase::Over { None } else { y.current_turn() },
+                    y.phase.as_str().to_string(),
+                    y.winner_id(),
+                ),
+                None => (vec![1u8; 5], vec![false; 5], 3, false, Vec::new(), None, "roll".to_string(), None),
+            };
+            return ServerMsg::YachtSnapshot {
+                settings: self.settings(),
+                players: self.player_infos(),
+                order: self.order.clone(),
+                status: self.status.as_str().to_string(),
+                current_turn,
+                deadline_ms: self.deadline_ms,
+                server_now_ms: now_ms(),
+                dice,
+                keep,
+                rolls_left,
+                rolled,
+                scores,
+                phase,
+                winner,
             };
         }
         if self.game == GameKind::Yut {

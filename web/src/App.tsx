@@ -15,6 +15,8 @@ import BotChess from "./views/BotChess";
 import BotCheckers from "./views/BotCheckers";
 import BotYut from "./views/BotYut";
 import YutGame from "./views/YutGame";
+import BotYacht from "./views/BotYacht";
+import YachtGame from "./views/YachtGame";
 
 export default function App() {
   const { state, clearError } = useGame();
@@ -58,6 +60,8 @@ function render(screen: string, game: string) {
         <ChessGame />
       ) : game === "yut" ? (
         <YutGame />
+      ) : game === "yacht" ? (
+        <YachtGame />
       ) : (
         <Game />
       );
@@ -76,5 +80,6 @@ function BotGameRouter() {
   if (g === "chess") return <BotChess />;
   if (g === "checkers") return <BotCheckers />;
   if (g === "yut") return <BotYut />;
+  if (g === "yacht") return <BotYacht />;
   return <BotOmok />;
 }

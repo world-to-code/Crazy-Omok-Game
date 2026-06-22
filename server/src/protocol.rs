@@ -112,6 +112,12 @@ pub enum ClientMsg {
     },
     /// (윷놀이) 내 12지신 캐릭터 선택 (로비, 진행 중 아닐 때).
     SetZodiac { zodiac: String },
+    /// (요트) 내 차례에 주사위를 굴린다(서버가 결과를 굴림).
+    YachtRoll,
+    /// (요트) 주사위 킵 토글.
+    YachtKeep { index: u8 },
+    /// (요트) 현재 주사위로 족보 칸(0~11)에 점수 기록.
+    YachtScore { category: u8 },
 }
 
 /// 서버 → 클라이언트
@@ -267,6 +273,30 @@ pub enum ServerMsg {
         throw_index: usize,
         key: String,
         route: String,
+    },
+    /// (요트) 방 전체 상태 스냅샷.
+    YachtSnapshot {
+        settings: RoomSettings,
+        players: Vec<PlayerInfo>,
+        order: Vec<Uuid>,
+        status: String,
+        current_turn: Option<Uuid>,
+        deadline_ms: Option<u64>,
+        server_now_ms: u64,
+        dice: Vec<u8>,
+        keep: Vec<bool>,
+        rolls_left: u8,
+        rolled: bool,
+        scores: Vec<Vec<Option<i32>>>,
+        phase: String, // roll | over
+        winner: Option<Uuid>,
+    },
+    /// (요트) 누군가 주사위를 굴림 — 던지기 애니메이션용.
+    YachtRolled {
+        by: Uuid,
+        dice: Vec<u8>,
+        keep: Vec<bool>,
+        first_roll: bool,
     },
     /// (알까기) 발사 결과 — 위치 타임라인 + 갱신된 마블 상태 + 다음 차례.
     FlickResolved {

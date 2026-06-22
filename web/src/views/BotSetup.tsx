@@ -19,16 +19,20 @@ export default function BotSetup() {
         ? "checkers"
         : state.selectedGame === "yut"
           ? "yut"
-          : "omok";
+          : state.selectedGame === "yacht"
+            ? "yacht"
+            : "omok";
   const [level, setLevel] = useState<0 | 1 | 2 | 3>(1);
   const [humanFirst, setHumanFirst] = useState(true);
   const [zodiac, setZodiac] = useState<string>(ZODIAC[2].id); // 기본 호랑이
 
   const gameLabel =
-    game === "chess" ? "체스" : game === "checkers" ? "체커" : game === "yut" ? "윷놀이" : "오목";
+    game === "chess" ? "체스" : game === "checkers" ? "체커" : game === "yut" ? "윷놀이" : game === "yacht" ? "요트" : "오목";
   const isYut = game === "yut";
-  const firstLabel = game === "chess" ? "백 (선공)" : isYut ? "내가 먼저" : "흑 (선공)";
-  const secondLabel = game === "chess" ? "흑 (후공)" : isYut ? "봇이 먼저" : "백 (후공)";
+  const isYacht = game === "yacht";
+  const noLevel = isYut || isYacht; // 운 비중이 커 난이도 생략
+  const firstLabel = game === "chess" ? "백 (선공)" : noLevel ? "내가 먼저" : "흑 (선공)";
+  const secondLabel = game === "chess" ? "흑 (후공)" : noLevel ? "봇이 먼저" : "백 (후공)";
 
   return (
     <div className="home card">
@@ -37,11 +41,15 @@ export default function BotSetup() {
       </button>
       <h1>🤖 봇과 대결 — {gameLabel}</h1>
       <p className="subtitle">
-        {isYut ? "캐릭터와 선·후공을 고르면 바로 시작합니다." : "난이도를 고르면 바로 시작합니다. 제한시간 45초."}
+        {isYut
+          ? "캐릭터와 선·후공을 고르면 바로 시작합니다."
+          : isYacht
+            ? "선·후공을 고르면 바로 시작합니다."
+            : "난이도를 고르면 바로 시작합니다. 제한시간 45초."}
       </p>
 
-      {/* 윷놀이는 운 비중이 커 난이도 구분이 의미가 적어 생략(봇은 항상 합리적으로 둠). */}
-      {!isYut && (
+      {/* 윷·요트는 운 비중이 커 난이도 구분이 의미가 적어 생략. */}
+      {!noLevel && (
         <div className="game-pick" style={{ marginTop: 8 }}>
           {LEVELS.map((l) => (
             <button
@@ -82,13 +90,13 @@ export default function BotSetup() {
         </>
       )}
 
-      <div style={{ margin: "18px 0 8px", fontWeight: 600 }}>{isYut ? "선/후공" : "내 선공/색"}</div>
+      <div style={{ margin: "18px 0 8px", fontWeight: 600 }}>{noLevel ? "선/후공" : "내 선공/색"}</div>
       <div className="game-pick">
         <button
           className={`game-card${humanFirst ? " active" : ""}`}
           onClick={() => setHumanFirst(true)}
         >
-          <div className="game-emoji">{game === "chess" ? "♔" : isYut ? "🙋" : "⚫️"}</div>
+          <div className="game-emoji">{game === "chess" ? "♔" : noLevel ? "🙋" : "⚫️"}</div>
           <div className="game-title">{firstLabel}</div>
           <div className="game-sub">내가 먼저 둠</div>
         </button>
@@ -96,7 +104,7 @@ export default function BotSetup() {
           className={`game-card${!humanFirst ? " active" : ""}`}
           onClick={() => setHumanFirst(false)}
         >
-          <div className="game-emoji">{game === "chess" ? "♚" : isYut ? "🤖" : "⚪️"}</div>
+          <div className="game-emoji">{game === "chess" ? "♚" : noLevel ? "🤖" : "⚪️"}</div>
           <div className="game-title">{secondLabel}</div>
           <div className="game-sub">봇이 먼저 둠</div>
         </button>

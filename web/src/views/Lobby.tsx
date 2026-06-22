@@ -16,6 +16,7 @@ export default function Lobby() {
   const isFlick = game === "flick";
   const isChess = game === "chess";
   const isYut = game === "yut";
+  const isYacht = game === "yacht";
   const isTeam = mode === "team" && !isFlick;
 
   const [orderMode, setOrderMode] = useState<"random" | "manual">("random");
@@ -72,6 +73,7 @@ export default function Lobby() {
           {settings.name} {isChess ? <span className="mode-pill">♛ 집단지성 체스</span> : isTeam && <span className="mode-pill">🤝 팀전</span>}
           {isFlick && <span className="mode-pill">🌀 알까기</span>}
           {isYut && <span className="mode-pill">🎲 윷놀이</span>}
+          {isYacht && <span className="mode-pill">🎲 요트</span>}
         </h2>
         <div className="code-box">
           <span>방 코드</span>
@@ -86,6 +88,8 @@ export default function Lobby() {
             <>조준 {settings.turn_limit_secs}초 · 최대 {settings.max_players}명 · 최후 1인 승리 </>
           ) : isYut ? (
             <>차례당 {settings.turn_limit_secs}초 · 최대 {settings.max_players}명 · 말 4개 완주 시 승리 </>
+          ) : isYacht ? (
+            <>차례당 {settings.turn_limit_secs}초 · 최대 {settings.max_players}명 · 12족보 총점 최고 승리 </>
           ) : (
             <>
               {settings.board_size}×{settings.board_size} 보드 · {settings.win_length}목 승리 · 차례당{" "}
@@ -93,7 +97,7 @@ export default function Lobby() {
             </>
           )}
           {settings.has_password ? "· 🔒 비밀방" : ""}
-          {isHost && !isChess && !isYut && (
+          {isHost && !isChess && !isYut && !isYacht && (
             <button className="edit-toggle" onClick={() => setEditing((v) => !v)}>
               {editing ? "닫기" : "⚙️ 설정 수정"}
             </button>
@@ -102,7 +106,7 @@ export default function Lobby() {
 
         {isHost && editing && <SettingsEditor onSaved={() => setEditing(false)} />}
 
-        {isYut ? <ZodiacPicker /> : !isTeam && <ColorPicker />}
+        {isYut ? <ZodiacPicker /> : isYacht ? null : !isTeam && <ColorPicker />}
 
         {status === "finished" && <div className="banner">이전 게임이 종료되었습니다. 다시 시작할 수 있어요.</div>}
 

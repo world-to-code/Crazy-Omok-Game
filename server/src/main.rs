@@ -5,6 +5,7 @@ mod game;
 mod protocol;
 mod state;
 mod ws;
+mod yacht;
 mod yut;
 
 use std::sync::Arc;
