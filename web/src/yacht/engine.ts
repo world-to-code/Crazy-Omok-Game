@@ -5,19 +5,27 @@ export type Category =
   | "ones" | "twos" | "threes" | "fours" | "fives" | "sixes"
   | "choice" | "fourKind" | "fullHouse" | "smallStraight" | "largeStraight" | "yacht";
 
-export const CATEGORIES: { key: Category; label: string; section: "upper" | "lower"; hint: string }[] = [
-  { key: "ones", label: "1", section: "upper", hint: "1의 합" },
-  { key: "twos", label: "2", section: "upper", hint: "2의 합" },
-  { key: "threes", label: "3", section: "upper", hint: "3의 합" },
-  { key: "fours", label: "4", section: "upper", hint: "4의 합" },
-  { key: "fives", label: "5", section: "upper", hint: "5의 합" },
-  { key: "sixes", label: "6", section: "upper", hint: "6의 합" },
-  { key: "choice", label: "찬스", section: "lower", hint: "모든 주사위 합" },
-  { key: "fourKind", label: "포카드", section: "lower", hint: "같은 눈 4개 → 전체 합" },
-  { key: "fullHouse", label: "풀하우스", section: "lower", hint: "3+2 → 전체 합" },
-  { key: "smallStraight", label: "S.스트레이트", section: "lower", hint: "연속 4개 → 15" },
-  { key: "largeStraight", label: "L.스트레이트", section: "lower", hint: "연속 5개 → 30" },
-  { key: "yacht", label: "요트", section: "lower", hint: "같은 눈 5개 → 50" },
+export const CATEGORIES: {
+  key: Category;
+  label: string; // 점수표에 표시되는 짧은 이름
+  name: string; // 전체 이름
+  section: "upper" | "lower";
+  hint: string; // 한 줄 요약(셀 툴팁)
+  desc: string; // 초보자용 자세한 설명
+  example: string; // 예시
+}[] = [
+  { key: "ones", label: "1 (에이스)", name: "에이스 (1)", section: "upper", hint: "1의 눈 개수 × 1", desc: "주사위 중 1이 몇 개인지 세어 ×1점. (다른 눈은 무시)", example: "1·1·1·4·6 → 1이 3개 = 3점" },
+  { key: "twos", label: "2 (듀스)", name: "듀스 (2)", section: "upper", hint: "2의 눈 개수 × 2", desc: "주사위 중 2가 몇 개인지 세어 ×2점.", example: "2·2·5·5·6 → 2가 2개 = 4점" },
+  { key: "threes", label: "3 (트리플)", name: "트리플 (3)", section: "upper", hint: "3의 눈 개수 × 3", desc: "주사위 중 3이 몇 개인지 세어 ×3점.", example: "3·3·3·1·2 → 3이 3개 = 9점" },
+  { key: "fours", label: "4 (쿼드)", name: "쿼드 (4)", section: "upper", hint: "4의 눈 개수 × 4", desc: "주사위 중 4가 몇 개인지 세어 ×4점.", example: "4·4·4·4·1 → 4가 4개 = 16점" },
+  { key: "fives", label: "5 (퀸트)", name: "퀸트 (5)", section: "upper", hint: "5의 눈 개수 × 5", desc: "주사위 중 5가 몇 개인지 세어 ×5점.", example: "5·5·5·2·3 → 5가 3개 = 15점" },
+  { key: "sixes", label: "6 (식스)", name: "식스 (6)", section: "upper", hint: "6의 눈 개수 × 6", desc: "주사위 중 6이 몇 개인지 세어 ×6점.", example: "6·6·6·6·6 → 6이 5개 = 30점" },
+  { key: "choice", label: "찬스", name: "찬스 (Choice)", section: "lower", hint: "주사위 5개의 합", desc: "어떤 조합이든 상관없이 주사위 5개의 눈을 모두 더한 점수. 마땅한 족보가 없을 때 점수를 챙기기 좋아요.", example: "3·5·6·6·2 → 22점" },
+  { key: "fourKind", label: "포 카드", name: "포 카드 (4 of a kind)", section: "lower", hint: "같은 눈 4개 이상 → 5개 전체 합 / 아니면 0", desc: "같은 눈이 4개(또는 5개) 있으면 주사위 5개 전체 합으로 인정. 조건을 못 채우면 0점.", example: "5·5·5·5·2 → 22점 / 5·5·5·2·1 → 0점" },
+  { key: "fullHouse", label: "풀 하우스", name: "풀 하우스 (Full House)", section: "lower", hint: "3개+2개(같은 눈) → 5개 전체 합 / 아니면 0", desc: "같은 눈 3개와 또 다른 같은 눈 2개로 이뤄지면(3+2) 전체 합으로 인정. 아니면 0점.", example: "4·4·4·2·2 → 16점 / 4·4·4·4·2 → 풀하우스 아님 0점" },
+  { key: "smallStraight", label: "스몰 스트레이트", name: "스몰 스트레이트 (작은 줄)", section: "lower", hint: "연속된 눈 4개 → 15점 고정", desc: "연속된 숫자가 4개 이어지면(예: 2·3·4·5) 무조건 15점. 아니면 0점.", example: "1·2·3·4·6 → 15점 / 2·3·4·6·6 → 0점" },
+  { key: "largeStraight", label: "라지 스트레이트", name: "라지 스트레이트 (큰 줄)", section: "lower", hint: "연속된 눈 5개 → 30점 고정", desc: "5개가 모두 연속이면(1·2·3·4·5 또는 2·3·4·5·6) 무조건 30점. 아니면 0점.", example: "2·3·4·5·6 → 30점" },
+  { key: "yacht", label: "⭐ 요트", name: "요트 (Yacht)", section: "lower", hint: "5개 모두 같은 눈 → 50점!", desc: "주사위 5개가 모두 같은 눈이면 최고점 50점! 게임에서 가장 큰 한 방이에요. 아니면 0점.", example: "6·6·6·6·6 → 50점" },
 ];
 
 export const CAT_INDEX: Record<Category, number> = CATEGORIES.reduce(

@@ -3,6 +3,7 @@ import { useGame } from "../state/store";
 import {
   CATEGORIES,
   CAT_INDEX,
+  UPPER_BONUS,
   UPPER_BONUS_THRESHOLD,
   applyRoll,
   categoryScore,
@@ -21,6 +22,7 @@ import { YachtScene } from "../yacht/scene/scene";
 import { playStone, playResult, playFanfare } from "../bot/sound";
 import SoundToggle from "../bot/SoundToggle";
 import { useViewportSize } from "../bot/useViewport";
+import YachtGuide from "../yacht/YachtGuide";
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -270,7 +272,10 @@ export default function BotYacht() {
         </div>
 
         {/* 점수판 */}
-        <aside className="card scl" style={{ width: 320, flexShrink: 0, overflowY: "auto", padding: "10px 12px" }}>
+        <aside className="card scl" style={{ width: 340, flexShrink: 0, overflowY: "auto", padding: "10px 12px" }}>
+          <div style={{ fontSize: 11.5, color: "#9a8b76", marginBottom: 6, lineHeight: 1.45 }}>
+            기록할 칸을 클릭하세요. <span style={{ color: "#7fd18c" }}>+초록 숫자</span>는 지금 기록하면 받는 점수예요.
+          </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ color: "#a99a86" }}>
@@ -280,51 +285,45 @@ export default function BotYacht() {
               </tr>
             </thead>
             <tbody>
-              {CATEGORIES.map((c, idx) => {
+              <SectionRow text="▸ 윗칸 · 같은 눈 모으기 (개수×눈)" />
+              {CATEGORIES.filter((c) => c.section === "upper").map((c) => {
+                const idx = CAT_INDEX[c.key];
                 const meVal = st.scores[0][idx];
-                const botVal = st.scores[1][idx];
                 const preview = isHuman && st.rolled && meVal === null ? categoryScore(st.dice, c.key) : null;
                 const clickable = isHuman && st.rolled && myOpen.has(c.key) && !animatingRef.current;
                 return (
-                  <tr key={c.key} style={{ borderTop: "1px solid #2a2230" }}>
-                    <td style={{ padding: "5px 2px", color: "#d8c9b4" }} title={c.hint}>
-                      {c.section === "upper" ? `${c.label}` : c.label}
-                    </td>
-                    <td
-                      onClick={clickable ? () => onScore(c.key) : undefined}
-                      style={{
-                        textAlign: "center",
-                        padding: "5px 2px",
-                        cursor: clickable ? "pointer" : "default",
-                        color: meVal !== null ? "#f0d9a0" : preview !== null ? "#7fd18c" : "#5a4f44",
-                        background: clickable ? "rgba(127,209,140,.10)" : "transparent",
-                        fontWeight: meVal !== null ? 700 : 400,
-                        borderRadius: 4,
-                      }}
-                    >
-                      {meVal !== null ? meVal : preview !== null ? `+${preview}` : "·"}
-                    </td>
-                    <td style={{ textAlign: "center", padding: "5px 2px", color: botVal !== null ? "#a9c0d8" : "#5a4f44", fontWeight: botVal !== null ? 700 : 400 }}>
-                      {botVal !== null ? botVal : "·"}
-                    </td>
-                  </tr>
+                  <CatRow key={c.key} label={c.label} hint={`${c.hint} — ${c.example}`} meVal={meVal} botVal={st.scores[1][idx]} preview={preview} clickable={clickable} onScore={() => onScore(c.key)} highlight={c.key === "yacht"} />
                 );
               })}
-              <tr style={{ borderTop: "2px solid #3a3040", color: "#a99a86" }}>
-                <td style={{ padding: "5px 2px" }}>상단합/보너스</td>
-                <td style={{ textAlign: "center" }}>{uppers[0]}{uppers[0] >= UPPER_BONUS_THRESHOLD ? " +35" : ""}</td>
-                <td style={{ textAlign: "center" }}>{uppers[1]}{uppers[1] >= UPPER_BONUS_THRESHOLD ? " +35" : ""}</td>
+              <tr style={{ borderTop: "1px dashed #3a3040", color: uppers[0] >= UPPER_BONUS_THRESHOLD ? "#7fd18c" : "#c9a86a" }}>
+                <td style={{ padding: "5px 2px", fontSize: 11.5 }} title={`윗칸 합이 ${UPPER_BONUS_THRESHOLD}점 이상이면 +${UPPER_BONUS}점`}>
+                  🎁 보너스 {uppers[0] >= UPPER_BONUS_THRESHOLD ? "달성!" : `(${UPPER_BONUS_THRESHOLD}점↑)`}
+                </td>
+                <td style={{ textAlign: "center", fontSize: 11.5 }}>
+                  {uppers[0]}/{UPPER_BONUS_THRESHOLD}{uppers[0] >= UPPER_BONUS_THRESHOLD ? ` +${UPPER_BONUS}` : ""}
+                </td>
+                <td style={{ textAlign: "center", fontSize: 11.5, color: "#8a9aad" }}>
+                  {uppers[1]}/{UPPER_BONUS_THRESHOLD}{uppers[1] >= UPPER_BONUS_THRESHOLD ? ` +${UPPER_BONUS}` : ""}
+                </td>
               </tr>
-              <tr style={{ borderTop: "1px solid #2a2230", fontWeight: 800 }}>
-                <td style={{ padding: "6px 2px", color: "#f0d9a0" }}>합계</td>
-                <td style={{ textAlign: "center", color: "#f0d9a0" }}>{totals[0]}</td>
-                <td style={{ textAlign: "center", color: "#a9c0d8" }}>{totals[1]}</td>
+              <SectionRow text="▸ 아랫칸 · 특별한 조합" />
+              {CATEGORIES.filter((c) => c.section === "lower").map((c) => {
+                const idx = CAT_INDEX[c.key];
+                const meVal = st.scores[0][idx];
+                const preview = isHuman && st.rolled && meVal === null ? categoryScore(st.dice, c.key) : null;
+                const clickable = isHuman && st.rolled && myOpen.has(c.key) && !animatingRef.current;
+                return (
+                  <CatRow key={c.key} label={c.label} hint={`${c.hint} — ${c.example}`} meVal={meVal} botVal={st.scores[1][idx]} preview={preview} clickable={clickable} onScore={() => onScore(c.key)} highlight={c.key === "yacht"} />
+                );
+              })}
+              <tr style={{ borderTop: "2px solid #3a3040", fontWeight: 800 }}>
+                <td style={{ padding: "7px 2px", color: "#f0d9a0" }}>합계</td>
+                <td style={{ textAlign: "center", color: "#f0d9a0", fontSize: 15 }}>{totals[0]}</td>
+                <td style={{ textAlign: "center", color: "#a9c0d8", fontSize: 15 }}>{totals[1]}</td>
               </tr>
             </tbody>
           </table>
-          <div style={{ fontSize: 11, color: "#6b5d4f", marginTop: 8, lineHeight: 1.5 }}>
-            상단(1~6) 합이 63 이상이면 보너스 +35. 한 턴에 최대 3번 굴리고, 칸 하나에 점수를 기록합니다.
-          </div>
+          <YachtGuide />
         </aside>
       </div>
 
@@ -346,4 +345,53 @@ export default function BotYacht() {
 
 function cellHead(active: boolean): React.CSSProperties {
   return { textAlign: "center", padding: "4px 2px", color: active ? "#f0d9a0" : "#a99a86" };
+}
+
+// 구역 구분 헤더 행.
+function SectionRow({ text }: { text: string }) {
+  return (
+    <tr>
+      <td colSpan={3} style={{ padding: "7px 2px 3px", color: "#c9a86a", fontSize: 11.5, fontWeight: 700 }}>{text}</td>
+    </tr>
+  );
+}
+
+// 족보 한 줄(나/봇). preview는 내 차례에 기록 시 받을 점수.
+function CatRow(props: {
+  label: string;
+  hint: string;
+  meVal: number | null;
+  botVal: number | null;
+  preview: number | null;
+  clickable: boolean;
+  onScore: () => void;
+  highlight?: boolean;
+}) {
+  const { label, hint, meVal, botVal, preview, clickable, onScore, highlight } = props;
+  return (
+    <tr style={{ borderTop: "1px solid #2a2230" }}>
+      <td style={{ padding: "5px 2px", color: highlight ? "#f0c674" : "#d8c9b4", fontWeight: highlight ? 700 : 400 }} title={hint}>
+        {label}
+      </td>
+      <td
+        onClick={clickable ? onScore : undefined}
+        title={clickable ? "여기에 기록하기" : undefined}
+        style={{
+          textAlign: "center",
+          padding: "5px 2px",
+          cursor: clickable ? "pointer" : "default",
+          color: meVal !== null ? "#f0d9a0" : preview !== null ? "#7fd18c" : "#5a4f44",
+          background: clickable ? "rgba(127,209,140,.10)" : "transparent",
+          fontWeight: meVal !== null ? 700 : 400,
+          borderRadius: 4,
+          outline: clickable ? "1px solid rgba(127,209,140,.3)" : "none",
+        }}
+      >
+        {meVal !== null ? meVal : preview !== null ? `+${preview}` : "·"}
+      </td>
+      <td style={{ textAlign: "center", padding: "5px 2px", color: botVal !== null ? "#a9c0d8" : "#5a4f44", fontWeight: botVal !== null ? 700 : 400 }}>
+        {botVal !== null ? botVal : "·"}
+      </td>
+    </tr>
+  );
 }

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "../state/store";
 import {
   CATEGORIES,
+  CAT_INDEX,
+  UPPER_BONUS,
   UPPER_BONUS_THRESHOLD,
   categoryScore,
   totalScore,
@@ -14,6 +16,7 @@ import Countdown from "../components/Countdown";
 import { useViewportSize } from "../bot/useViewport";
 import { resolvePlayerColor } from "../types";
 import Chat from "../components/Chat";
+import YachtGuide from "../yacht/YachtGuide";
 
 export default function YachtGame() {
   const { state, send, leave } = useGame();
@@ -165,6 +168,44 @@ export default function YachtGame() {
   const winnerPlayer = players.find((p) => p.id === yacht.winner);
   const isHost = state.settings?.host_id === myId;
 
+  // 족보 한 줄(N인). 내 칸은 클릭해 기록, +초록은 미리보기 점수.
+  const renderCat = (c: (typeof CATEGORIES)[number]) => {
+    const idx = CAT_INDEX[c.key];
+    const clickable = isMyTurn && yacht.rolled && myOwner >= 0 && yacht.scores[myOwner][idx] === null && !animatingRef.current;
+    const preview = myOpenPreview ? myOpenPreview[idx] : null;
+    return (
+      <tr key={c.key} style={{ borderTop: "1px solid #2a2230" }}>
+        <td style={{ padding: "4px 2px", color: c.key === "yacht" ? "#f0c674" : "#d8c9b4", fontWeight: c.key === "yacht" ? 700 : 400 }} title={`${c.hint} — ${c.example}`}>
+          {c.label}
+        </td>
+        {order.map((id, owner) => {
+          const val = yacht.scores[owner][idx];
+          const mine = owner === myOwner;
+          const showPreview = mine && val === null && preview !== null;
+          return (
+            <td
+              key={id}
+              onClick={mine && clickable ? () => onScore(idx) : undefined}
+              title={mine && clickable ? "여기에 기록" : undefined}
+              style={{
+                textAlign: "center",
+                padding: "4px 2px",
+                cursor: mine && clickable ? "pointer" : "default",
+                background: mine && clickable ? "rgba(127,209,140,.10)" : "transparent",
+                color: val !== null ? (mine ? "#f0d9a0" : "#a9c0d8") : showPreview ? "#7fd18c" : "#5a4f44",
+                fontWeight: val !== null ? 700 : 400,
+                borderRadius: 4,
+                outline: mine && clickable ? "1px solid rgba(127,209,140,.3)" : "none",
+              }}
+            >
+              {val !== null ? val : showPreview ? `+${preview}` : "·"}
+            </td>
+          );
+        })}
+      </tr>
+    );
+  };
+
   return (
     <div className="game" style={{ width: "100%", marginLeft: 0 }}>
       <div className="game-bar card">
@@ -233,6 +274,9 @@ export default function YachtGame() {
         {/* 점수판 (N인) + 채팅 */}
         <aside style={{ width: Math.min(120 + order.length * 56, 380), flexShrink: 0, display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
           <div className="card scl" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 10px" }}>
+          <div style={{ fontSize: 11, color: "#9a8b76", marginBottom: 6, lineHeight: 1.4 }}>
+            내 차례에 기록할 칸을 클릭하세요. <span style={{ color: "#7fd18c" }}>+초록</span>은 지금 기록 시 받을 점수.
+          </div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
               <tr style={{ color: "#a99a86" }}>
@@ -250,52 +294,27 @@ export default function YachtGame() {
               </tr>
             </thead>
             <tbody>
-              {CATEGORIES.map((c, idx) => {
-                const clickable = isMyTurn && yacht.rolled && myOwner >= 0 && yacht.scores[myOwner][idx] === null && !animatingRef.current;
-                const preview = myOpenPreview ? myOpenPreview[idx] : null;
-                return (
-                  <tr key={c.key} style={{ borderTop: "1px solid #2a2230" }}>
-                    <td style={{ padding: "4px 2px", color: "#d8c9b4" }} title={c.hint}>{c.label}</td>
-                    {order.map((id, owner) => {
-                      const val = yacht.scores[owner][idx];
-                      const mine = owner === myOwner;
-                      const showPreview = mine && val === null && preview !== null;
-                      return (
-                        <td
-                          key={id}
-                          onClick={mine && clickable ? () => onScore(idx) : undefined}
-                          style={{
-                            textAlign: "center",
-                            padding: "4px 2px",
-                            cursor: mine && clickable ? "pointer" : "default",
-                            background: mine && clickable ? "rgba(127,209,140,.10)" : "transparent",
-                            color: val !== null ? (mine ? "#f0d9a0" : "#a9c0d8") : showPreview ? "#7fd18c" : "#5a4f44",
-                            fontWeight: val !== null ? 700 : 400,
-                            borderRadius: 4,
-                          }}
-                        >
-                          {val !== null ? val : showPreview ? `+${preview}` : "·"}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-              <tr style={{ borderTop: "2px solid #3a3040", color: "#a99a86" }}>
-                <td style={{ padding: "5px 2px" }}>상단/보너스</td>
+              <tr><td colSpan={1 + order.length} style={{ padding: "7px 2px 3px", color: "#c9a86a", fontSize: 11, fontWeight: 700 }}>▸ 윗칸 · 같은 눈 모으기</td></tr>
+              {CATEGORIES.filter((c) => c.section === "upper").map((c) => renderCat(c))}
+              <tr style={{ borderTop: "1px dashed #3a3040" }}>
+                <td style={{ padding: "5px 2px", fontSize: 10.5, color: "#c9a86a" }} title={`윗칸 합 ${UPPER_BONUS_THRESHOLD}점 이상이면 +${UPPER_BONUS}점`}>🎁 보너스</td>
                 {order.map((id, owner) => {
                   const u = upperSum(yacht.scores[owner]);
-                  return <td key={id} style={{ textAlign: "center", fontSize: 11 }}>{u}{u >= UPPER_BONUS_THRESHOLD ? "+35" : ""}</td>;
+                  const ok = u >= UPPER_BONUS_THRESHOLD;
+                  return <td key={id} style={{ textAlign: "center", fontSize: 10.5, color: ok ? "#7fd18c" : "#8a7d6a" }}>{u}/{UPPER_BONUS_THRESHOLD}{ok ? ` +${UPPER_BONUS}` : ""}</td>;
                 })}
               </tr>
-              <tr style={{ borderTop: "1px solid #2a2230", fontWeight: 800 }}>
-                <td style={{ padding: "6px 2px", color: "#f0d9a0" }}>합계</td>
+              <tr><td colSpan={1 + order.length} style={{ padding: "7px 2px 3px", color: "#c9a86a", fontSize: 11, fontWeight: 700 }}>▸ 아랫칸 · 특별한 조합</td></tr>
+              {CATEGORIES.filter((c) => c.section === "lower").map((c) => renderCat(c))}
+              <tr style={{ borderTop: "2px solid #3a3040", fontWeight: 800 }}>
+                <td style={{ padding: "7px 2px", color: "#f0d9a0" }}>합계</td>
                 {order.map((id, owner) => (
-                  <td key={id} style={{ textAlign: "center", color: owner === myOwner ? "#f0d9a0" : "#a9c0d8" }}>{totalScore(yacht.scores[owner])}</td>
+                  <td key={id} style={{ textAlign: "center", color: owner === myOwner ? "#f0d9a0" : "#a9c0d8", fontSize: 14 }}>{totalScore(yacht.scores[owner])}</td>
                 ))}
               </tr>
             </tbody>
           </table>
+          <YachtGuide defaultOpen={false} />
           </div>
           <Chat />
         </aside>
