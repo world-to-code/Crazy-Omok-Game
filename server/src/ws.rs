@@ -163,22 +163,27 @@ fn handle_client_msg(
             let game = match game.as_deref() {
                 Some("flick") => GameKind::Flick,
                 Some("chess") => GameKind::Chess,
+                Some("yut") => GameKind::Yut,
                 _ => GameKind::Omok,
             };
             let mut mode = match mode.as_deref() {
                 Some("team") => GameMode::Team,
                 _ => GameMode::Classic,
             };
-            // 체스는 항상 팀전(집단지성).
+            // 체스는 항상 팀전(집단지성). 윷놀이는 항상 클래식(개인전).
             if game == GameKind::Chess {
                 mode = GameMode::Team;
             }
-            // 인원 상한: 알까기 2~10, 체스/오목 팀전 무제한(100), 오목 클래식 2~20.
+            if game == GameKind::Yut {
+                mode = GameMode::Classic;
+            }
+            // 인원 상한: 알까기 2~10, 체스/오목 팀전 무제한(100), 오목 클래식 2~20, 윷 2~5.
             let max_players = match game {
                 GameKind::Flick => max_players.clamp(2, 10),
                 GameKind::Chess => 100,
                 GameKind::Omok if mode == GameMode::Team => 100,
                 GameKind::Omok => max_players.clamp(2, 20),
+                GameKind::Yut => max_players.clamp(2, 5),
             };
             let board_size = board_size.clamp(5, 100);
             let win_length = win_length.clamp(3, 10);
@@ -204,6 +209,7 @@ fn handle_client_msg(
                 color_index: 0,
                 color: None,
                 team: None,
+                zodiac: None,
                 last_chat_ms: 0,
                 ip: ip.to_string(),
                 conns: vec![(conn_id, tx.clone())],
@@ -221,6 +227,7 @@ fn handle_client_msg(
                 game,
                 flick: None,
                 chess: None,
+                yut: None,
                 players: vec![host],
                 order: Vec::new(),
                 turn_idx: 0,
@@ -421,6 +428,36 @@ fn handle_client_msg(
                 let snap = room.snapshot();
                 room.broadcast(&snap);
                 spawn_chess_timer(state.clone(), code, generation, limit);
+                return;
+            }
+
+            // ===== 윷놀이 (2~5인 개인전) =====
+            if room.game == GameKind::Yut {
+                let connected: Vec<Uuid> =
+                    room.players.iter().filter(|p| p.connected()).map(|p| p.id).collect();
+                if connected.len() < 2 {
+                    err(tx, "2명 이상이어야 시작할 수 있습니다");
+                    return;
+                }
+                let mut ids = if random || !is_permutation(&order, &room.players) {
+                    connected.clone()
+                } else {
+                    order.clone()
+                };
+                if random {
+                    ids = shuffle(ids);
+                }
+                room.order = ids;
+                room.turn_idx = 0;
+                room.status = RoomStatus::Playing;
+                room.yut = Some(crate::yut::YutGame::new(&room.order));
+                room.turn_generation += 1;
+                let generation = room.turn_generation;
+                let limit = room.turn_limit_secs;
+                room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
+                let snap = room.snapshot();
+                room.broadcast(&snap);
+                spawn_yut_timer(state.clone(), code, generation, limit);
                 return;
             }
 
@@ -744,6 +781,113 @@ fn handle_client_msg(
             room.turn_idx = 0;
             room.turn_generation += 1;
             room.flick = None;
+            room.yut = None;
+            let snap = room.snapshot();
+            room.broadcast(&snap);
+        }
+
+        ClientMsg::YutThrow => {
+            let Some((code, pid)) = session.clone() else {
+                return;
+            };
+            let mut rooms = state.rooms();
+            let Some(room) = rooms.get_mut(&code) else {
+                return;
+            };
+            if room.game != GameKind::Yut || room.status != RoomStatus::Playing {
+                return;
+            }
+            let result;
+            {
+                let Some(y) = room.yut.as_mut() else {
+                    return;
+                };
+                if y.current_turn() != Some(pid) || y.phase != crate::yut::Phase::Throw {
+                    return;
+                }
+                result = y.roll();
+                y.apply_throw(result.clone());
+                y.discard_unplayable();
+            }
+            room.turn_idx = room.yut.as_ref().map(|y| y.turn).unwrap_or(0);
+            room.turn_generation += 1;
+            let generation = room.turn_generation;
+            let limit = room.turn_limit_secs;
+            room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
+            room.broadcast(&ServerMsg::YutThrown { by: pid, result });
+            let snap = room.snapshot();
+            room.broadcast(&snap);
+            spawn_yut_timer(state.clone(), code, generation, limit);
+        }
+
+        ClientMsg::YutMove { throw_index, key, route } => {
+            let Some((code, pid)) = session.clone() else {
+                return;
+            };
+            let mut rooms = state.rooms();
+            let Some(room) = rooms.get_mut(&code) else {
+                return;
+            };
+            if room.game != GameKind::Yut || room.status != RoomStatus::Playing {
+                return;
+            }
+            let r = crate::yut::Route::from_str(&route);
+            let over;
+            {
+                let Some(y) = room.yut.as_mut() else {
+                    return;
+                };
+                if y.current_turn() != Some(pid) || y.phase != crate::yut::Phase::Move {
+                    return;
+                }
+                if !y.is_legal(throw_index, &key, r) {
+                    err(tx, "둘 수 없는 수입니다");
+                    return;
+                }
+                over = y.apply_move(throw_index, &key, r);
+                if y.phase == crate::yut::Phase::Move {
+                    y.discard_unplayable();
+                }
+            }
+            room.turn_idx = room.yut.as_ref().map(|y| y.turn).unwrap_or(0);
+            room.broadcast(&ServerMsg::YutMoved { by: pid, throw_index, key, route });
+            if over {
+                room.status = RoomStatus::Finished;
+                room.winner = room.yut.as_ref().and_then(|y| y.winner_id());
+                room.turn_generation += 1;
+                let snap = room.snapshot();
+                room.broadcast(&snap);
+                room.broadcast(&ServerMsg::GameOver {
+                    winner: room.winner,
+                    winning_team: None,
+                    winning_line: Vec::new(),
+                });
+            } else {
+                room.turn_generation += 1;
+                let generation = room.turn_generation;
+                let limit = room.turn_limit_secs;
+                room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
+                let snap = room.snapshot();
+                room.broadcast(&snap);
+                spawn_yut_timer(state.clone(), code, generation, limit);
+            }
+        }
+
+        ClientMsg::SetZodiac { zodiac } => {
+            let Some((code, pid)) = session.clone() else {
+                return;
+            };
+            let mut rooms = state.rooms();
+            let Some(room) = rooms.get_mut(&code) else {
+                return;
+            };
+            if room.status == RoomStatus::Playing {
+                return;
+            }
+            let z: String = zodiac.chars().take(16).collect();
+            if let Some(p) = room.find_mut(pid) {
+                p.zodiac = Some(z);
+            }
             let snap = room.snapshot();
             room.broadcast(&snap);
         }
@@ -1137,6 +1281,7 @@ fn join_room(
         color_index: color,
         color: None,
         team: None,
+        zodiac: None,
         last_chat_ms: 0,
         ip: ip.to_string(),
         conns: vec![(conn_id, tx.clone())],
@@ -1267,8 +1412,24 @@ fn cleanup_departed(
     let snap = room.snapshot();
     room.broadcast(&snap);
 
-    // (클래식) 떠난 사람 차례였다면 다음으로 넘긴다.
+    // (윷놀이) 떠난 사람 차례였다면 다음으로 넘긴다(윷 상태도 함께 전진).
+    if room.game == GameKind::Yut && room.status == RoomStatus::Playing && was_turn {
+        if let Some(y) = room.yut.as_mut() {
+            y.skip_turn();
+        }
+        room.turn_idx = room.yut.as_ref().map(|y| y.turn).unwrap_or(0);
+        room.turn_generation += 1;
+        let gen = room.turn_generation;
+        let limit = room.turn_limit_secs;
+        room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
+        let snap = room.snapshot();
+        room.broadcast(&snap);
+        spawn_yut_timer(state.clone(), code.to_string(), gen, limit);
+    }
+
+    // (클래식 오목) 떠난 사람 차례였다면 다음으로 넘긴다.
     if room.mode == GameMode::Classic
+        && room.game != GameKind::Yut
         && room.status == RoomStatus::Playing
         && was_turn
         && !room.order.is_empty()
@@ -1421,6 +1582,34 @@ fn spawn_turn_timer(state: Arc<AppState>, code: String, generation: u64, limit_s
             });
             spawn_turn_timer(state.clone(), code.clone(), new_gen, limit);
         }
+    });
+}
+
+/// (윷놀이) 제한시간 초과 시 현재 차례를 건너뛰고 다음 사람에게.
+fn spawn_yut_timer(state: Arc<AppState>, code: String, generation: u64, limit_secs: u32) {
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(limit_secs as u64)).await;
+        let mut rooms = state.rooms();
+        let Some(room) = rooms.get_mut(&code) else {
+            return;
+        };
+        if room.status != RoomStatus::Playing
+            || room.game != GameKind::Yut
+            || room.turn_generation != generation
+        {
+            return;
+        }
+        if let Some(y) = room.yut.as_mut() {
+            y.skip_turn();
+        }
+        room.turn_idx = room.yut.as_ref().map(|y| y.turn).unwrap_or(0);
+        room.turn_generation += 1;
+        let new_gen = room.turn_generation;
+        let limit = room.turn_limit_secs;
+        room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
+        let snap = room.snapshot();
+        room.broadcast(&snap);
+        spawn_yut_timer(state.clone(), code, new_gen, limit);
     });
 }
 

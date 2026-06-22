@@ -151,3 +151,11 @@ export function playResult(win: boolean) {
   if (win) playWin();
   else playLose();
 }
+
+/** 윷·모(추가 던지기) 팡파르 — 밝은 상승음. */
+export function playFanfare() {
+  if (muted) return;
+  const notes = [523, 659, 784, 1047, 1319];
+  notes.forEach((f, i) => tone(f, i * 0.07, 0.32, "triangle", 0.2));
+  noise(0, 0.05, 0.18, 5000);
+}

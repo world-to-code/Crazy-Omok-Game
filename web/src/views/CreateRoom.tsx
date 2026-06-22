@@ -15,6 +15,7 @@ export default function CreateRoom() {
   const { state, send, setScreen } = useGame();
   const isFlick = state.selectedGame === "flick";
   const isChess = state.selectedGame === "chess";
+  const isYut = state.selectedGame === "yut";
   const [mode, setMode] = useState<"classic" | "team">("classic");
   const [name, setName] = useState("");
   const [nickname, setNickname] = useState("");
@@ -36,7 +37,7 @@ export default function CreateRoom() {
     e.preventDefault();
     send({
       type: "CreateRoom",
-      name: name.trim() || (isChess ? "집단지성 체스" : isFlick ? "알까기방" : "오목방"),
+      name: name.trim() || (isChess ? "집단지성 체스" : isFlick ? "알까기방" : isYut ? "윷놀이방" : "오목방"),
       nickname: nickname.trim() || "방장",
       max_players: maxPlayers,
       board_size: boardSize,
@@ -71,6 +72,46 @@ export default function CreateRoom() {
             단계별 투표 시간: <b>{turnLimit}초</b>
             <input type="range" min={5} max={60} step={5} value={turnLimit} onChange={(e) => setTurnLimit(+e.target.value)} />
             <small>기물 선택과 이동 선택 각 단계에 적용됩니다.</small>
+          </label>
+          <label>
+            비밀번호 (선택)
+            <input value={password} maxLength={30} onChange={(e) => setPassword(e.target.value)} placeholder="없으면 비워두세요" />
+          </label>
+          <button type="submit" className="primary big">방 만들기</button>
+        </form>
+      </div>
+    );
+  }
+
+  // ===== 윷놀이 방 만들기 =====
+  if (isYut) {
+    return (
+      <div className="card form-card">
+        <button className="back" onClick={() => setScreen("home")}>← 뒤로</button>
+        <h2>🎲 윷놀이 방 만들기</h2>
+        <form onSubmit={submit} className="form">
+          <label>
+            내 닉네임
+            <input value={nickname} maxLength={12} onChange={(e) => setNickname(e.target.value)} placeholder="방장" />
+          </label>
+          <label>
+            방 이름
+            <input value={name} maxLength={20} onChange={(e) => setName(e.target.value)} placeholder="윷놀이방" />
+          </label>
+          <label>
+            참가 인원: <b>{Math.min(maxPlayers, 5)}명</b>
+            <input
+              type="range"
+              min={2}
+              max={5}
+              value={Math.min(maxPlayers, 5)}
+              onChange={(e) => setMaxPlayers(+e.target.value)}
+            />
+            <small>2~5인 개인전. 순서대로 윷을 던져 말 4개를 먼저 모두 완주시키면 승리! 12지신은 로비에서 고릅니다.</small>
+          </label>
+          <label>
+            차례당 제한시간: <b>{turnLimit}초</b>
+            <input type="range" min={10} max={120} step={5} value={turnLimit} onChange={(e) => setTurnLimit(+e.target.value)} />
           </label>
           <label>
             비밀번호 (선택)

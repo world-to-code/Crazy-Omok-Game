@@ -20,6 +20,8 @@ import type {
   RoomBrief,
   RoomSettings,
   ServerMsg,
+  YutPieceInfo,
+  YutThrowInfo,
 } from "../types";
 
 export type Screen =
@@ -35,9 +37,10 @@ export type Screen =
 
 // 봇전(로컬, 서버 없음) 설정.
 export interface BotConfig {
-  game: "omok" | "chess" | "checkers";
+  game: "omok" | "chess" | "checkers" | "yut";
   level: 0 | 1 | 2 | 3; // 쉬움 · 중간 · 어려움 · 헬
   humanFirst: boolean; // 오목=사람 흑(선), 체스/체커=사람이 선공
+  zodiac?: string; // 윷놀이: 사람이 고른 12지신 id
 }
 
 export interface GameState {
@@ -66,8 +69,8 @@ export interface GameState {
   error: string | null;
   linkCode: string | null;
   // 게임 종류
-  game: string; // 현재 방의 게임 ("omok" | "flick" | "chess" | "checkers")
-  selectedGame: "omok" | "flick" | "chess" | "checkers"; // 메인에서 고른 게임
+  game: string; // 현재 방의 게임 ("omok" | "flick" | "chess" | "checkers" | "yut")
+  selectedGame: "omok" | "flick" | "chess" | "checkers" | "yut"; // 메인에서 고른 게임
   bot: BotConfig | null; // 봇전 진행 중이면 설정
   // 체스
   chess: {
@@ -101,6 +104,20 @@ export interface GameState {
     winner: string | null;
   } | null;
   othersAim: { owner: string; angle: number; power: number } | null;
+  // 윷놀이(멀티)
+  yut: {
+    pieces: YutPieceInfo[];
+    order: string[];
+    turn: string | null; // 현재 차례 플레이어 id
+    phase: string; // throw | move | over
+    queue: YutThrowInfo[];
+    winner: string | null;
+  } | null;
+  // 애니메이션 트리거(던지기/이동). 컴포넌트가 seq 변화로 소비.
+  yutEvent:
+    | { seq: number; kind: "throw"; by: string; result: YutThrowInfo }
+    | { seq: number; kind: "move"; by: string; throwIndex: number; key: string; route: string }
+    | null;
 }
 
 const initial: GameState = {
@@ -142,6 +159,8 @@ const initial: GameState = {
   flickResolve: null,
   flickPending: null,
   othersAim: null,
+  yut: null,
+  yutEvent: null,
 };
 
 const key = (x: number, y: number) => `${x},${y}`;
@@ -161,7 +180,7 @@ type Action =
   | { kind: "connected"; value: boolean }
   | { kind: "screen"; screen: Screen }
   | { kind: "linkJoin"; code: string }
-  | { kind: "selectGame"; game: "omok" | "flick" | "chess" | "checkers" }
+  | { kind: "selectGame"; game: "omok" | "flick" | "chess" | "checkers" | "yut" }
   | { kind: "startBot"; cfg: BotConfig }
   | { kind: "flickApply" }
   | { kind: "clearError" }
@@ -226,6 +245,9 @@ const IN_ROOM_MSGS = new Set([
   "FlickAiming",
   "ChessSnapshot",
   "ChessVoteUpdate",
+  "YutSnapshot",
+  "YutThrown",
+  "YutMoved",
 ]);
 
 function applyMsg(s: GameState, m: ServerMsg): GameState {
@@ -442,7 +464,50 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
         screen: "home",
         error: "방장에 의해 강퇴되었습니다",
       };
+    case "YutSnapshot": {
+      const screen = screenFor(m.status, s.screen);
+      return {
+        ...s,
+        settings: m.settings,
+        mode: m.settings.mode,
+        game: "yut",
+        players: m.players,
+        order: m.order,
+        status: m.status,
+        currentTurn: m.current_turn,
+        deadlineMs: toLocalDeadline(m.deadline_ms, m.server_now_ms),
+        winner: m.winner,
+        screen,
+        code: m.settings.code,
+        yut: {
+          pieces: m.pieces,
+          order: m.order,
+          turn: m.current_turn,
+          phase: m.phase,
+          queue: m.queue,
+          winner: m.winner,
+        },
+      };
+    }
+    case "YutThrown":
+      return {
+        ...s,
+        yutEvent: { seq: (s.yutEvent?.seq ?? 0) + 1, kind: "throw", by: m.by, result: m.result },
+      };
+    case "YutMoved":
+      return {
+        ...s,
+        yutEvent: {
+          seq: (s.yutEvent?.seq ?? 0) + 1,
+          kind: "move",
+          by: m.by,
+          throwIndex: m.throw_index,
+          key: m.key,
+          route: m.route,
+        },
+      };
   }
+  return s;
 }
 
 // 서버 시각 기준 deadline을 로컬 시각 기준으로 변환 (시계 차이 보정).
@@ -478,7 +543,7 @@ interface Ctx {
   state: GameState;
   send: (m: ClientMsg) => void;
   setScreen: (s: Screen) => void;
-  selectGame: (g: "omok" | "flick" | "chess" | "checkers") => void;
+  selectGame: (g: "omok" | "flick" | "chess" | "checkers" | "yut") => void;
   startBot: (cfg: BotConfig) => void;
   applyFlick: () => void;
   returnToLobby: () => void;
@@ -601,7 +666,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   // dispatch는 안정적이므로 콜백들도 안정적. ctx는 state가 바뀔 때만 새로 만든다.
   const setScreen = useCallback((screen: Screen) => dispatch({ kind: "screen", screen }), []);
-  const selectGame = useCallback((game: "omok" | "flick" | "chess" | "checkers") => dispatch({ kind: "selectGame", game }), []);
+  const selectGame = useCallback((game: "omok" | "flick" | "chess" | "checkers" | "yut") => dispatch({ kind: "selectGame", game }), []);
   const startBot = useCallback((cfg: BotConfig) => dispatch({ kind: "startBot", cfg }), []);
   const applyFlick = useCallback(() => dispatch({ kind: "flickApply" }), []);
   const returnToLobby = useCallback(() => send({ type: "ReturnToLobby" }), [send]);

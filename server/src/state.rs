@@ -53,6 +53,7 @@ pub enum GameKind {
     Omok,
     Flick,
     Chess,
+    Yut,
 }
 
 impl GameKind {
@@ -61,6 +62,7 @@ impl GameKind {
             GameKind::Omok => "omok",
             GameKind::Flick => "flick",
             GameKind::Chess => "chess",
+            GameKind::Yut => "yut",
         }
     }
 }
@@ -73,6 +75,8 @@ pub struct Player {
     pub color: Option<String>,
     /// 팀전에서의 소속 팀 (0/1), 미배정이면 None. 클래식에서는 항상 None.
     pub team: Option<u8>,
+    /// (윷놀이) 고른 12지신 id. 미선택이면 None.
+    pub zodiac: Option<String>,
     /// 마지막 채팅 전송 시각(ms). 채팅 속도 제한용.
     pub last_chat_ms: u64,
     /// 접속 IP (프록시 경유 시 "클라IP (proxy 프록시IP)" 형태).
@@ -103,6 +107,8 @@ pub struct Room {
     pub flick: Option<crate::flick::FlickGame>,
     /// 체스 게임 상태 (game == Chess 일 때만 Some).
     pub chess: Option<crate::chess::ChessGame>,
+    /// 윷놀이 게임 상태 (game == Yut 일 때만 Some).
+    pub yut: Option<crate::yut::YutGame>,
     pub players: Vec<Player>,
     pub order: Vec<Uuid>,
     pub turn_idx: usize,
@@ -266,6 +272,7 @@ impl Room {
                 color: p.color.clone(),
                 connected: p.connected(),
                 team: p.team,
+                zodiac: p.zodiac.clone(),
                 ip: p.ip.clone(),
             })
             .collect()
@@ -347,6 +354,31 @@ impl Room {
                 winner,
                 voters,
                 voted,
+            };
+        }
+        if self.game == GameKind::Yut {
+            let (pieces, phase, queue, current_turn, winner) = match &self.yut {
+                Some(y) => (
+                    y.piece_infos(),
+                    y.phase.as_str().to_string(),
+                    y.queue_infos(),
+                    if y.phase == crate::yut::Phase::Over { None } else { y.current_turn() },
+                    y.winner_id(),
+                ),
+                None => (Vec::new(), "throw".to_string(), Vec::new(), None, None),
+            };
+            return ServerMsg::YutSnapshot {
+                settings: self.settings(),
+                players: self.player_infos(),
+                order: self.order.clone(),
+                status: self.status.as_str().to_string(),
+                current_turn,
+                deadline_ms: self.deadline_ms,
+                server_now_ms: now_ms(),
+                pieces,
+                phase,
+                queue,
+                winner,
             };
         }
         let board: Vec<Stone> = self

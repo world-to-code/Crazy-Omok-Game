@@ -10,3 +10,6 @@ server/.env
 
 web/wasm-flick/target/
 web/wasm-ai/target/
+
+# 3rd-party 에셋 원본 팩(런타임 사본은 web/public/models/에 커밋)
+assets/

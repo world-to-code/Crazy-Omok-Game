@@ -97,6 +97,18 @@ pub enum ClientMsg {
     FlickAiming { angle: f64, power: f64 },
     /// (체스) 현재 단계에 칸 투표 (r=랭크 0~7, f=파일 0~7).
     ChessVote { r: u8, f: u8 },
+    /// (윷놀이) 내 차례에 윷을 던진다(서버가 결과를 굴림).
+    YutThrow,
+    /// (윷놀이) 던진 결과(throw_index)를 말 그룹(key)에 route 경로로 적용.
+    YutMove {
+        throw_index: usize,
+        key: String,
+        /// "diag" | "straight"
+        #[serde(default)]
+        route: String,
+    },
+    /// (윷놀이) 내 12지신 캐릭터 선택 (로비, 진행 중 아닐 때).
+    SetZodiac { zodiac: String },
 }
 
 /// 서버 → 클라이언트
@@ -226,6 +238,32 @@ pub enum ServerMsg {
         voters: u32,
         voted: u32,
     },
+    /// (윷놀이) 방 전체 상태 스냅샷.
+    YutSnapshot {
+        settings: RoomSettings,
+        players: Vec<PlayerInfo>,
+        order: Vec<Uuid>,
+        status: String,
+        current_turn: Option<Uuid>,
+        deadline_ms: Option<u64>,
+        server_now_ms: u64,
+        pieces: Vec<crate::yut::PieceInfo>,
+        phase: String, // throw | move | over
+        queue: Vec<crate::yut::ThrowInfo>,
+        winner: Option<Uuid>,
+    },
+    /// (윷놀이) 누군가 윷을 던진 결과 — 던지기 애니메이션용.
+    YutThrown {
+        by: Uuid,
+        result: crate::yut::ThrowInfo,
+    },
+    /// (윷놀이) 누군가 말을 움직임 — 이동 애니메이션 힌트(클라가 경로 재계산).
+    YutMoved {
+        by: Uuid,
+        throw_index: usize,
+        key: String,
+        route: String,
+    },
     /// (알까기) 발사 결과 — 위치 타임라인 + 갱신된 마블 상태 + 다음 차례.
     FlickResolved {
         ids: Vec<Uuid>,
@@ -344,6 +382,8 @@ pub struct PlayerInfo {
     pub color: Option<String>,
     pub connected: bool,
     pub team: Option<u8>,
+    /// (윷놀이) 고른 12지신 id.
+    pub zodiac: Option<String>,
     pub ip: String,
 }
 

@@ -20,7 +20,23 @@ export interface PlayerInfo {
   color: string | null; // 직접 고른 커스텀 색(hex). 없으면 color_index 기본색.
   connected: boolean;
   team: number | null;
+  zodiac: string | null; // (윷놀이) 고른 12지신 id
   ip: string;
+}
+
+// (윷놀이) 네트워크 말/던지기 정보.
+export interface YutPieceInfo {
+  id: number;
+  owner: number;
+  node: string;
+  lane: string; // "outer" | "A" | "B"
+  done: boolean;
+}
+export interface YutThrowInfo {
+  name: string; // do|gae|geol|yut|mo|backdo
+  steps: number;
+  bonus: boolean;
+  sticks: boolean[];
 }
 
 // 플레이어의 표시 색: 커스텀 색이 있으면 그것, 없으면 인덱스 기본색.
@@ -260,6 +276,22 @@ export type ServerMsg =
       voted: number;
     }
   | { type: "ChessVoteUpdate"; tallies: ChessVoteCell[]; voters: number; voted: number }
+  | {
+      type: "YutSnapshot";
+      settings: RoomSettings;
+      players: PlayerInfo[];
+      order: string[];
+      status: string;
+      current_turn: string | null;
+      deadline_ms: number | null;
+      server_now_ms: number;
+      pieces: YutPieceInfo[];
+      phase: string; // throw | move | over
+      queue: YutThrowInfo[];
+      winner: string | null;
+    }
+  | { type: "YutThrown"; by: string; result: YutThrowInfo }
+  | { type: "YutMoved"; by: string; throw_index: number; key: string; route: string }
   | { type: "FlickDraft"; options: string[] }
   | { type: "FlickAiming"; owner: string; angle: number; power: number }
   | {
@@ -316,4 +348,7 @@ export type ClientMsg =
   | { type: "KickPlayer"; player_id: string }
   | { type: "FlickDraftPick"; power: string }
   | { type: "FlickAim"; angle: number; power: number }
-  | { type: "FlickAiming"; angle: number; power: number };
+  | { type: "FlickAiming"; angle: number; power: number }
+  | { type: "YutThrow" }
+  | { type: "YutMove"; throw_index: number; key: string; route: string }
+  | { type: "SetZodiac"; zodiac: string };
