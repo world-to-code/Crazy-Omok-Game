@@ -226,9 +226,9 @@ export class YutScene {
     this.scene.add(sel);
   }
 
-  // 윷가락 쉬는 자리(앞쪽 중앙에 가로로 나란히 — 잘 보이게).
+  // 윷가락 쉬는 자리(앞쪽에 4개 나란히). 막대는 X축으로 누워 있으므로 간격은 Z축으로 줘야 겹치지 않는다.
   private stickRest(i: number): THREE.Vector3 {
-    return new THREE.Vector3((i - 1.5) * 0.66, 0.24, W(1.42));
+    return new THREE.Vector3(0, 0.24, W(1.18) + (i - 1.5) * 0.52);
   }
 
   private buildSticks() {
@@ -420,14 +420,15 @@ export class YutScene {
     const idx = slots.get(key) ?? 0;
     slots.set(key, idx + 1);
     if (p.node === HOME) {
-      const c = this.ownerSpot(p.owner, 1.46);
+      const c = this.ownerSpot(p.owner, 1.32);
       const col = idx % 2;
       const row = Math.floor(idx / 2);
-      return new THREE.Vector3(W(c.x) + (col * 0.72 - 0.36), 0, W(c.y) + (row * 0.72 - 0.36));
+      return new THREE.Vector3(W(c.x) + (col * 0.46 - 0.23), 0, W(c.y) + (row * 0.46 - 0.23));
     }
     if (p.node === GOAL) {
-      const c = this.ownerSpot(p.owner, 1.92);
-      return new THREE.Vector3(W(c.x) + (idx % 2) * 0.6 - 0.3, 0, W(c.y) + Math.floor(idx / 2) * 0.6);
+      // 완주 말은 자기 구역에 위로 쌓이는 더미(가로로 안 퍼져 판 밖으로 안 나감).
+      const c = this.ownerSpot(p.owner, 1.52);
+      return new THREE.Vector3(W(c.x), idx * 0.42, W(c.y));
     }
     return this.worldOf(p.node).setY(idx * 0.62); // 업기: 위로 쌓기
   }
