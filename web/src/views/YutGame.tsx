@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useGame } from "../state/store";
 import { HOME, type NodeId } from "../yut/board";
-import { applyMove, describeMove, legalTargets, stateFromSnapshot, type MoveTarget } from "../yut/engine";
+import { applyMove, applyThrow, describeMove, discardUnplayable, legalTargets, stateFromSnapshot, type MoveTarget } from "../yut/engine";
 import type { YutState, ThrowResult, ThrowName } from "../yut/types";
 import { THROW_LABEL } from "../yut/types";
 import { zodiacOf } from "../yut/zodiac";
@@ -12,6 +12,7 @@ import Countdown from "../components/Countdown";
 import { useViewportSize } from "../bot/useViewport";
 import { resolvePlayerColor } from "../types";
 import PowerThrowButton from "../yut/PowerThrowButton";
+import Chat from "../components/Chat";
 
 const groupKeyOf = (node: NodeId): NodeId => (node === HOME ? HOME : node);
 const CONFETTI = ["🎉", "🎊", "✨", "⭐", "🏆", "🪅"];
@@ -47,6 +48,9 @@ export default function YutGame() {
   const processedEvtRef = useRef(0);
   const announceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
+  // 이벤트를 순차 큐로 처리(타이밍 레이스 방지) — 던지기/이동 이벤트를 결정론적으로 미러에 적용.
+  const queueRef = useRef<NonNullable<typeof yutEvent>[]>([]);
+  const runningRef = useRef(false);
 
   const [ready, setReady] = useState(false);
   const [selPiece, setSelPiece] = useState<number | null>(null);
@@ -68,8 +72,8 @@ export default function YutGame() {
 
   const nameOf = (id: string) => players.find((p) => p.id === id)?.nickname ?? "?";
 
-  // 스냅샷을 씬에 반영(미러 갱신 + 위치 스냅).
-  function reconcile() {
+  // 스냅샷 → 미러 즉시 동기화(휴지 상태에서만: 입장/스킵/시간초과/드리프트 보정).
+  function snapToMirror() {
     const y = yutRef.current;
     const scene = sceneRef.current;
     if (!y || !scene || !readyRef.current) return;
@@ -90,7 +94,7 @@ export default function YutGame() {
       if (!alive) return;
       readyRef.current = true;
       setReady(true);
-      reconcile();
+      snapToMirror();
       setTick((n) => n + 1);
     });
     const resize = () => {
@@ -117,66 +121,75 @@ export default function YutGame() {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logLines.length]);
 
-  // 던지기/이동 이벤트 → 애니메이션 (스냅샷 effect보다 먼저 선언).
+  // 이벤트를 큐에 쌓고 순차 처리 — 각 이벤트마다 애니메이션 후 미러에 결정론적으로 적용.
+  // (스냅샷 reconcile 의존을 없애 던지기↔이동 이벤트 사이 타이밍 레이스 제거.)
+  async function pump() {
+    if (runningRef.current) return;
+    const scene = sceneRef.current;
+    if (!scene || !readyRef.current) return;
+    runningRef.current = true;
+    animatingRef.current = true;
+    while (queueRef.current.length) {
+      if (!mirrorRef.current) snapToMirror();
+      const m0 = mirrorRef.current;
+      if (!m0) break;
+      const evt = queueRef.current.shift()!;
+      if (evt.kind === "throw") {
+        playStone();
+        const result = evt.result as unknown as ThrowResult;
+        await scene.throwYut(result, evt.power);
+        if (announceTimer.current) clearTimeout(announceTimer.current);
+        setAnnounce(result);
+        if (result.bonus) playFanfare();
+        announceTimer.current = setTimeout(() => setAnnounce(null), 1300);
+        setLogLines((l) => [
+          ...l,
+          result.nak
+            ? `${nameOf(evt.by)}: 낙! ⚠ 차례 넘어감`
+            : `${nameOf(evt.by)}: ${THROW_LABEL[result.name as ThrowName] ?? result.name}${result.bonus ? " (한 번 더!)" : ""}`,
+        ]);
+        let next = applyThrow(m0, result);
+        if (next.phase === "move") next = discardUnplayable(next);
+        mirrorRef.current = next;
+      } else {
+        const route = evt.route as "diag" | "straight";
+        const detail = describeMove(m0, evt.throwIndex, evt.key, route);
+        let post = applyMove(m0, evt.throwIndex, evt.key, route);
+        if (detail) {
+          await scene.walkMovers(detail, post.pieces);
+          if (detail.capturedIds.length) {
+            playCapture();
+            await scene.killAndReturn(detail.capturedIds, post.pieces);
+          }
+          setLogLines((l) => [
+            ...l,
+            `${nameOf(evt.by)}: 이동${detail.capturedIds.length ? " · 잡음 ⚔️" : ""}${detail.finishes ? " · 완주 🏁" : ""}`,
+          ]);
+        }
+        if (post.phase === "move") post = discardUnplayable(post);
+        mirrorRef.current = post;
+      }
+      scene.syncPieces(mirrorRef.current.pieces);
+    }
+    animatingRef.current = false;
+    runningRef.current = false;
+    setTick((n) => n + 1);
+  }
+
+  // 이벤트 도착 → 큐 적재 후 펌프.
   useEffect(() => {
     const evt = yutEvent;
     if (!evt || evt.seq === processedEvtRef.current) return;
     processedEvtRef.current = evt.seq;
-    const scene = sceneRef.current;
-    if (!scene || !readyRef.current) return;
-    animatingRef.current = true;
-    let cancelled = false;
-    (async () => {
-      if (evt.kind === "throw") {
-        playStone();
-        await scene.throwYut(evt.result as unknown as ThrowResult, evt.power);
-        if (cancelled) return;
-        if (announceTimer.current) clearTimeout(announceTimer.current);
-        setAnnounce(evt.result as unknown as ThrowResult);
-        if (evt.result.bonus) playFanfare();
-        announceTimer.current = setTimeout(() => setAnnounce(null), 1300);
-        setLogLines((l) => [
-          ...l,
-          evt.result.nak
-            ? `${nameOf(evt.by)}: 낙! ⚠ 차례 넘어감`
-            : `${nameOf(evt.by)}: ${THROW_LABEL[evt.result.name as ThrowName] ?? evt.result.name}${evt.result.bonus ? " (한 번 더!)" : ""}`,
-        ]);
-      } else {
-        const mirror = mirrorRef.current;
-        if (mirror) {
-          const route = evt.route as "diag" | "straight";
-          const detail = describeMove(mirror, evt.throwIndex, evt.key, route);
-          if (detail) {
-            const finalPieces = applyMove(mirror, evt.throwIndex, evt.key, route).pieces;
-            await scene.walkMovers(detail, finalPieces);
-            if (cancelled) return;
-            if (detail.capturedIds.length) {
-              playCapture();
-              await scene.killAndReturn(detail.capturedIds, finalPieces);
-            }
-            setLogLines((l) => [
-              ...l,
-              `${nameOf(evt.by)}: 이동${detail.capturedIds.length ? " · 잡음 ⚔️" : ""}${detail.finishes ? " · 완주 🏁" : ""}`,
-            ]);
-          }
-        }
-      }
-      if (cancelled) return;
-      animatingRef.current = false;
-      reconcile();
-      setTick((n) => n + 1);
-    })();
-    return () => {
-      cancelled = true;
-    };
+    queueRef.current.push(evt);
+    void pump();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yutEvent?.seq]);
 
-  // 스냅샷 변경 → 애니메이션 중이 아니면 즉시 반영.
+  // 스냅샷 변경 → 휴지 상태(애니/큐 없음)에서만 미러 보정(입장/스킵/시간초과/드리프트).
   useEffect(() => {
-    if (!readyRef.current) return;
-    if (animatingRef.current) return;
-    reconcile();
+    if (!readyRef.current || animatingRef.current || runningRef.current || queueRef.current.length) return;
+    snapToMirror();
     setTick((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [yut]);
@@ -426,6 +439,7 @@ export default function YutGame() {
               ))}
             </div>
           </div>
+          <Chat />
         </aside>
       </div>
 

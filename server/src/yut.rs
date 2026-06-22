@@ -57,9 +57,13 @@ fn outer_index(node: &str) -> Option<i32> {
     node.strip_prefix('o').and_then(|r| r.parse::<i32>().ok())
 }
 
+// 대각선: 중앙 제외 4점(모↔중앙 2점씩). o0 = 도착 지점(완주는 o0에서 전진 시).
 fn step_forward(from: &str, lane: Lane, is_start: bool, route: Route) -> Step {
     if from == "home" {
         return Step::Node("o1".into(), Lane::Outer);
+    }
+    if from == "o0" {
+        return Step::Goal; // 도착 지점에서 앞으로 = 완주
     }
     if is_start {
         if from == "o5" {
@@ -77,26 +81,30 @@ fn step_forward(from: &str, lane: Lane, is_start: bool, route: Route) -> Step {
             };
         }
         if from == "c" {
-            return Step::Node("b2".into(), Lane::B);
+            return Step::Node("b3".into(), Lane::B); // 방에서 질러가기 → 도착 방향
         }
     }
     match from {
-        "a1" => return Step::Node("c".into(), Lane::A),
-        "b1" => return Step::Node("c".into(), Lane::B),
+        "a1" => return Step::Node("a2".into(), Lane::A),
+        "a2" => return Step::Node("c".into(), Lane::A),
+        "b1" => return Step::Node("b2".into(), Lane::B),
+        "b2" => return Step::Node("c".into(), Lane::B),
         "c" => {
             return if lane == Lane::A {
-                Step::Node("a2".into(), Lane::A)
+                Step::Node("a3".into(), Lane::A)
             } else {
-                Step::Node("b2".into(), Lane::B)
+                Step::Node("b3".into(), Lane::B)
             }
         }
-        "a2" => return Step::Node("o15".into(), Lane::Outer),
-        "b2" => return Step::Goal,
+        "a3" => return Step::Node("a4".into(), Lane::A),
+        "a4" => return Step::Node("o15".into(), Lane::Outer),
+        "b3" => return Step::Node("b4".into(), Lane::B),
+        "b4" => return Step::Node("o0".into(), Lane::Outer), // 지름길 B → 도착 지점
         _ => {}
     }
     if let Some(i) = outer_index(from) {
         if i >= 19 {
-            return Step::Goal;
+            return Step::Node("o0".into(), Lane::Outer); // o19 다음 = 도착 지점(완주 아님)
         }
         return Step::Node(format!("o{}", i + 1), Lane::Outer);
     }
@@ -106,12 +114,16 @@ fn step_forward(from: &str, lane: Lane, is_start: bool, route: Route) -> Step {
 fn step_back(from: &str, lane: Lane) -> Step {
     match from {
         "home" => Step::Node("home".into(), Lane::Outer),
-        "o0" => Step::Node("home".into(), Lane::Outer),
+        "o0" => Step::Node("o19".into(), Lane::Outer), // 도착에서 뒤로
         "a1" => Step::Node("o5".into(), Lane::Outer),
+        "a2" => Step::Node("a1".into(), Lane::A),
+        "a3" => Step::Node("c".into(), Lane::A),
+        "a4" => Step::Node("a3".into(), Lane::A),
         "b1" => Step::Node("o10".into(), Lane::Outer),
-        "a2" => Step::Node("c".into(), Lane::A),
-        "b2" => Step::Node("c".into(), Lane::B),
-        "c" => Step::Node("a1".into(), Lane::A),
+        "b2" => Step::Node("b1".into(), Lane::B),
+        "b3" => Step::Node("c".into(), Lane::B),
+        "b4" => Step::Node("b3".into(), Lane::B),
+        "c" => Step::Node("a2".into(), Lane::A),
         "o16" => Step::Node("o15".into(), Lane::Outer),
         _ => {
             if let Some(i) = outer_index(from) {
@@ -136,6 +148,9 @@ fn walk(from: &str, lane: Lane, steps: i32, route: Route) -> Step {
                 cur = node;
                 cl = l;
             }
+        }
+        if cur == "o0" && s < steps - 1 {
+            return Step::Node(cur, cl); // 도착 지점에서 멈춤(초과 이동 없음)
         }
     }
     Step::Node(cur, cl)
@@ -524,13 +539,19 @@ mod tests {
 
     #[test]
     fn shortcut_and_entry() {
-        // home+5 = o5, o5+2(diag) = c(중앙), c+2 = goal
+        // home+5 = o5(모). 모서리→중앙은 걸(3): o5+3(diag) = c.
         assert!(matches!(walk("home", Lane::Outer, 5, Route::Diag), Step::Node(ref n, _) if n == "o5"));
-        assert!(matches!(walk("o5", Lane::Outer, 2, Route::Diag), Step::Node(ref n, _) if n == "c"));
-        assert!(matches!(walk("c", Lane::A, 2, Route::Diag), Step::Goal));
-        // a2 다음은 o15 (꼭짓점 누락 없음)
-        assert!(matches!(walk("a2", Lane::A, 1, Route::Diag), Step::Node(ref n, _) if n == "o15"));
-        // 바깥길: o5+3 straight = o8
-        assert!(matches!(walk("o5", Lane::Outer, 3, Route::Straight), Step::Node(ref n, _) if n == "o8"));
+        assert!(matches!(walk("o5", Lane::Outer, 3, Route::Diag), Step::Node(ref n, _) if n == "c"));
+        assert!(matches!(walk("o5", Lane::Outer, 2, Route::Diag), Step::Node(ref n, _) if n == "a2"));
+        // 방에서 질러가기: c+3 = o0(도착 지점). 완주는 그 뒤 전진에서만.
+        assert!(matches!(walk("c", Lane::B, 3, Route::Diag), Step::Node(ref n, _) if n == "o0"));
+        assert!(matches!(walk("o0", Lane::Outer, 1, Route::Diag), Step::Goal));
+        // 도착 지점은 초과 이동 없이 멈춘다: o18+모(5) = o0 (캡).
+        assert!(matches!(walk("o18", Lane::Outer, 5, Route::Diag), Step::Node(ref n, _) if n == "o0"));
+        // 지름길 A: a4 다음은 o15. 바깥길: o5+4 straight = o9.
+        assert!(matches!(walk("a4", Lane::A, 1, Route::Diag), Step::Node(ref n, _) if n == "o15"));
+        assert!(matches!(walk("o5", Lane::Outer, 4, Route::Straight), Step::Node(ref n, _) if n == "o9"));
+        // 도착 지점에서 백도 → o19.
+        assert!(matches!(walk("o0", Lane::Outer, -1, Route::Diag), Step::Node(ref n, _) if n == "o19"));
     }
 }

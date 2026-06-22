@@ -3,7 +3,8 @@
 // 외곽 링(o0..o19): o0 = 출발/도착 모서리. 모서리 = o0,o5,o10,o15.
 //   - o5  = 첫 모 → 지름길 A(중앙 경유 → o15 방향)
 //   - o10 = 먼 모 → 지름길 B(중앙 경유 → 출구 방향)
-//   - 중앙(c, 방)에 정확히 멈춘 뒤 출발하면 항상 출구 방향(b2)으로 질러간다 → 최단 경로.
+//   - 중앙(c, 방)에 정확히 멈춘 뒤 출발하면 항상 출구 방향(b3)으로 질러간다 → 최단 경로.
+//   - 완주: 한 바퀴 돌아 도착 지점(o0)에 멈춘 뒤, 다음 턴에 전진하면 난다(o0→goal).
 //
 // 좌표는 [-1,1] 정사각 평면. 3D에서 x,z 로 매핑(스케일은 씬에서).
 
@@ -51,12 +52,18 @@ function ring(): BoardNode[] {
   return nodes;
 }
 
-// 대각선 노드(중앙 공유).
+// 대각선 노드(중앙 공유). 각 대각선은 중앙 제외 4점(모↔중앙 사이 2점씩).
+// 지름길 A: o5 → a1 → a2 → c → a3 → a4 → o15 (모서리→중앙 = 걸/3).
+// 지름길 B: o10 → b1 → b2 → c → b3 → b4 → o0(도착) — 방에서 질러가기.
 const DIAG: BoardNode[] = [
-  { id: "a1", x: 0.5, y: -0.5, corner: false, center: false }, // o5 → 중앙
-  { id: "a2", x: -0.5, y: 0.5, corner: false, center: false }, // 중앙 → o15
-  { id: "b1", x: -0.5, y: -0.5, corner: false, center: false }, // o10 → 중앙
-  { id: "b2", x: 0.5, y: 0.5, corner: false, center: false }, // 중앙 → 출구
+  { id: "a1", x: 0.66, y: -0.66, corner: false, center: false },
+  { id: "a2", x: 0.33, y: -0.33, corner: false, center: false },
+  { id: "a3", x: -0.33, y: 0.33, corner: false, center: false },
+  { id: "a4", x: -0.66, y: 0.66, corner: false, center: false },
+  { id: "b1", x: -0.66, y: -0.66, corner: false, center: false },
+  { id: "b2", x: -0.33, y: -0.33, corner: false, center: false },
+  { id: "b3", x: 0.33, y: 0.33, corner: false, center: false },
+  { id: "b4", x: 0.66, y: 0.66, corner: false, center: false },
   { id: "c", x: 0, y: 0, corner: false, center: true }, // 중앙(방)
 ];
 
@@ -96,32 +103,42 @@ export function stepForward(
   isStart: boolean,
   route: Route = "diag",
 ): Step | typeof GOAL {
-  // 대기 → 진입. home에서 k칸 = o1..o5 (모서리 o5는 5칸에 정확히 안착 → 지름길과 정렬).
-  // o0 은 출발/도착 모서리로, 진입 말은 밟지 않고 완주 시 통과한다.
+  // 대기 → 진입. home에서 k칸 = o1..o5.
   if (from === HOME) return { node: "o1", lane: "outer" };
+  // 도착 지점(o0)에서 앞으로 = 완주(난다). 한 바퀴 돌아 o0에 멈춘 뒤 한 번 더 던져야 완주.
+  if (from === "o0") return GOAL;
 
   // 분기(모서리/중앙)에 "정확히 멈춰 출발"할 때만 경로 선택 적용.
   if (isStart) {
     if (from === "o5") return route === "straight" ? { node: "o6", lane: "outer" } : { node: "a1", lane: "A" };
     if (from === "o10") return route === "straight" ? { node: "o11", lane: "outer" } : { node: "b1", lane: "B" };
-    if (from === "c") return { node: "b2", lane: "B" }; // 방에서 질러가기 → 출구
+    if (from === "c") return { node: "b3", lane: "B" }; // 방에서 질러가기 → 출구(도착) 방향
   }
 
   // 대각선 진행(지나가는 중 — 선택 없음).
-  if (from === "a1") return { node: "c", lane: "A" };
-  if (from === "b1") return { node: "c", lane: "B" };
-  if (from === "c") return lane === "A" ? { node: "a2", lane: "A" } : { node: "b2", lane: "B" };
-  if (from === "a2") return { node: "o15", lane: "outer" }; // 지름길 A는 좌하 꼭짓점 o15로 합류
-  if (from === "b2") return GOAL; // 출구
+  if (from === "a1") return { node: "a2", lane: "A" };
+  if (from === "a2") return { node: "c", lane: "A" };
+  if (from === "b1") return { node: "b2", lane: "B" };
+  if (from === "b2") return { node: "c", lane: "B" };
+  if (from === "c") return lane === "A" ? { node: "a3", lane: "A" } : { node: "b3", lane: "B" };
+  if (from === "a3") return { node: "a4", lane: "A" };
+  if (from === "a4") return { node: "o15", lane: "outer" }; // 지름길 A → 좌하 꼭짓점 합류
+  if (from === "b3") return { node: "b4", lane: "B" };
+  if (from === "b4") return { node: "o0", lane: "outer" }; // 지름길 B → 도착 지점 o0
 
-  // 외곽 진행.
+  // 외곽 진행. o19 다음은 도착 지점 o0(완주가 아니라 일단 o0에 멈춤).
   const m = /^o(\d+)$/.exec(from);
   if (m) {
     const i = parseInt(m[1], 10);
-    if (i >= 19) return GOAL; // o19 다음 = 출발선 통과 → 완주
+    if (i >= 19) return { node: "o0", lane: "outer" };
     return { node: `o${i + 1}`, lane: "outer" };
   }
   return GOAL;
+}
+
+// 전진 중 도착 지점(o0)에 닿으면 초과 이동 없이 그 자리에 멈춘다(다음 턴에 나가야 완주).
+function capAtFinish(node: NodeId, s: number, steps: number): boolean {
+  return node === "o0" && s < steps - 1;
 }
 
 // from 에서 steps 칸 이동의 "거쳐가는 노드 목록"(애니메이션용). 완주하면 마지막에 GOAL 포함.
@@ -149,6 +166,7 @@ export function walkPath(
     nodes.push(nx.node);
     cur = nx.node;
     cl = nx.lane;
+    if (capAtFinish(cur, s, steps)) return { nodes, finishes: false }; // 도착 지점에서 멈춤
   }
   return { nodes, finishes: false };
 }
@@ -171,19 +189,24 @@ export function walk(
     if (nx === GOAL) return GOAL;
     curNode = nx.node;
     curLane = nx.lane;
+    if (capAtFinish(curNode, s, steps)) return { node: curNode, lane: curLane };
   }
   return { node: curNode, lane: curLane };
 }
 
-// 백도: 한 칸 뒤로. 외곽은 인덱스-1, 대기/진입 직후엔 이동 불가(그대로).
+// 백도: 한 칸 뒤로. 도착 지점(o0)에서 백도면 뒤(o19)로 — 잡힐 위험도 생긴다.
 function stepBack(from: NodeId, lane: Lane): { node: NodeId; lane: Lane } | typeof GOAL {
   if (from === HOME) return { node: HOME, lane: "outer" }; // 대기 중엔 백도 무의미
-  if (from === "o0") return { node: HOME, lane: "outer" };
+  if (from === "o0") return { node: "o19", lane: "outer" }; // 도착에서 뒤로
   if (from === "a1") return { node: "o5", lane: "outer" };
+  if (from === "a2") return { node: "a1", lane: "A" };
+  if (from === "a3") return { node: "c", lane: "A" };
+  if (from === "a4") return { node: "a3", lane: "A" };
   if (from === "b1") return { node: "o10", lane: "outer" };
-  if (from === "a2") return { node: "c", lane: "A" };
-  if (from === "b2") return { node: "c", lane: "B" };
-  if (from === "c") return { node: "a1", lane: "A" }; // 단순화: 진입 대각선으로 복귀
+  if (from === "b2") return { node: "b1", lane: "B" };
+  if (from === "b3") return { node: "c", lane: "B" };
+  if (from === "b4") return { node: "b3", lane: "B" };
+  if (from === "c") return { node: "a2", lane: "A" }; // 단순화: 진입 대각선으로 복귀
   if (from === "o16") return { node: "o15", lane: "outer" };
   const m = /^o(\d+)$/.exec(from);
   if (m) {

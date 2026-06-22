@@ -53,6 +53,16 @@ interface KillAnim {
   onDone: () => void;
 }
 
+// 윷가락 한 개의 던지기 궤적(트레이→착지→구르기→안착/낙).
+interface ThrowStick {
+  tray: THREE.Vector3;
+  land: THREE.Vector3;
+  finalSpot: THREE.Vector3;
+  spin: THREE.Vector3;
+  faceUp: boolean; // 배(흰면)가 위 = 앞면
+  offEdge: boolean; // 낙: 판 밖으로 굴러떨어짐
+}
+
 // 이동 마커 1개 = 도착 칸 + 표시 정보 + 실제 적용할 수(throwIndex/key/route)를 함께 담는다.
 export interface MoveMarkerSpec {
   to: NodeId;
@@ -77,7 +87,7 @@ export class YutScene {
   private tokens = new Map<number, TokenRec>();
   private sticks: THREE.Group[] = [];
   private throwAnim:
-    | { t: number; dur: number; result: ThrowResult; power: number; lands: THREE.Vector3[]; onDone: () => void }
+    | { t: number; dur: number; result: ThrowResult; power: number; items: ThrowStick[]; onDone: () => void }
     | null = null;
   private highlightRing: THREE.Mesh | null = null;
   private raycaster = new THREE.Raycaster();
@@ -163,8 +173,8 @@ export class YutScene {
       });
       this.scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat));
     };
-    diag(["o5", "a1", "c", "a2", "o15"]);
-    diag(["o10", "b1", "c", "b2", "o0"]);
+    diag(["o5", "a1", "a2", "c", "a3", "a4", "o15"]);
+    diag(["o10", "b1", "b2", "c", "b3", "b4", "o0"]);
 
     for (const n of BOARD_NODES) {
       const big = n.corner || n.center;
@@ -514,20 +524,58 @@ export class YutScene {
     this.highlightRing.visible = true;
   }
 
-  // 윷을 판 위로 던진다. power(0~1)는 던지는 세기(연출). 낙이면 판 밖으로 굴러떨어진다.
+  // 윷을 판 위로 던진다. power(0~1) = 세기(연출): 셀수록 멀리/세게 날아가 더 많이 구른다.
+  // 낙이면 일부 윷가락이 무작위 가장자리로 굴러떨어진다. 매번 무작위라 같은 모션이 안 나온다.
   throwYut(result: ThrowResult, power = 0.6): Promise<void> {
-    // 시작 자세로 리셋(앞쪽 트레이, 배가 위).
     this.sticks.forEach((s, i) => {
       s.position.copy(this.stickRest(i));
       s.rotation.set(Math.PI, 0, 0);
     });
-    // 착지 지점: 보통은 판 중앙 부근, 낙이면 판 밖(앞 가장자리 너머).
-    const lands = this.sticks.map((_, i) => {
-      if (result.nak) return new THREE.Vector3((i - 1.5) * 0.7, 0.2, W(1.7) + i * 0.15);
-      return new THREE.Vector3((i - 1.5) * 0.62, 0.2, W(-0.12) + (i % 2) * 0.5 - 0.25);
+    const p = Math.max(0.15, Math.min(1, power));
+    const R3 = () => Math.random() - 0.5;
+    // 낙: 무작위 가장자리 + 무작위 1~2개 윷가락이 떨어진다.
+    const edge = Math.floor(Math.random() * 4); // 0앞 1뒤 2좌 3우
+    const fall = new Set<number>();
+    if (result.nak) {
+      const cnt = 1 + Math.floor(Math.random() * 2);
+      while (fall.size < cnt) fall.add(Math.floor(Math.random() * 4)); // 0~3번 윷가락 중
+    }
+    const beyond = 1.42 * R; // 판(천 ±1.15R) 밖
+    const items: ThrowStick[] = this.sticks.map((_, i) => {
+      const tray = this.stickRest(i);
+      // 착지: 세기에 비례해 앞에서 보드 안쪽(뒤, -z)으로. 약간 흩어짐.
+      const land = new THREE.Vector3(
+        R3() * 3.2,
+        0.2,
+        W(0.95) - p * (W(0.95) - W(-0.35)) + R3() * 1.2,
+      );
+      const ang = Math.random() * Math.PI * 2;
+      const rollMag = 0.6 + p * 2.2 + Math.random() * 0.9; // 세기에 비례한 구르기 거리
+      let finalSpot: THREE.Vector3;
+      let offEdge = false;
+      if (result.nak && fall.has(i)) {
+        offEdge = true;
+        const off = beyond + 0.4 + Math.random() * 0.6;
+        finalSpot =
+          edge === 0
+            ? new THREE.Vector3(R3() * 3, 0.2, off)
+            : edge === 1
+              ? new THREE.Vector3(R3() * 3, 0.2, -off)
+              : edge === 2
+                ? new THREE.Vector3(-off, 0.2, R3() * 3)
+                : new THREE.Vector3(off, 0.2, R3() * 3);
+      } else {
+        finalSpot = new THREE.Vector3(
+          Math.max(-3.8, Math.min(3.8, land.x + Math.cos(ang) * rollMag)),
+          0.2,
+          Math.max(-3.6, Math.min(4.4, land.z + Math.sin(ang) * rollMag)),
+        );
+      }
+      const spin = new THREE.Vector3(R3() * 2, R3() * 2, R3() * 2).multiplyScalar(8 + p * 13);
+      return { tray, land, finalSpot, spin, faceUp: !!result.sticks[i], offEdge };
     });
     return new Promise((resolve) => {
-      this.throwAnim = { t: 0, dur: 1.2, result, power: Math.max(0.15, Math.min(1, power)), lands, onDone: resolve };
+      this.throwAnim = { t: 0, dur: 1.35, result, power: p, items, onDone: resolve };
     });
   }
 
@@ -754,31 +802,41 @@ export class YutScene {
       const a = this.throwAnim;
       a.t += dt;
       const k = Math.min(1, a.t / a.dur);
-      const peak = 2.2 + a.power * 3.4; // 세기에 따라 더 높이/멀리
-      const spin = (12 + a.power * 10);
+      const peak = 2 + a.power * 3.2; // 세기에 따라 더 높이/멀리
       this.sticks.forEach((s, i) => {
-        const start = this.stickRest(i);
-        const land = a.lands[i];
-        // 트레이 → 착지 지점으로 포물선 비행.
-        s.position.x = start.x + (land.x - start.x) * k;
-        s.position.z = start.z + (land.z - start.z) * k;
-        let y = start.y + Math.sin(Math.min(1, k) * Math.PI) * peak + (land.y - start.y) * k;
-        if (a.result.nak && k > 0.8) {
-          // 낙: 가장자리 너머로 굴러 떨어진다.
-          y -= ((k - 0.8) / 0.2) * 3.4;
-        }
-        s.position.y = y;
-        if (k < 0.82) {
-          s.rotation.x += dt * (spin + i * 2);
-          s.rotation.z = Math.sin(a.t * 9 + i) * 0.42;
-        } else if (a.result.nak) {
-          s.rotation.x += dt * 9; // 계속 구름
-          s.rotation.z += dt * 4;
+        const it = a.items[i];
+        const pos = new THREE.Vector3();
+        if (k < 0.45) {
+          // ① 비행: 트레이 → 착지(포물선).
+          const f = k / 0.45;
+          const e = f * f * (3 - 2 * f);
+          pos.copy(it.tray).lerp(it.land, e);
+          pos.y += Math.sin(f * Math.PI) * peak;
+          s.rotation.x += it.spin.x * dt;
+          s.rotation.z += it.spin.z * dt;
+        } else if (k < 0.82) {
+          // ② 판 위 구르기: 착지 → 최종 위치(통통 튀며 감속).
+          const f = (k - 0.45) / 0.37;
+          pos.copy(it.land).lerp(it.finalSpot, f);
+          pos.y = 0.2 + Math.abs(Math.sin(f * Math.PI * 3)) * 0.4 * (1 - f);
+          const slow = 1 - f;
+          s.rotation.x += it.spin.x * dt * slow;
+          s.rotation.z += it.spin.z * dt * slow * 0.5;
         } else {
-          // 배(하얀 면, 표시 있음)가 위 = 앞면. rotation.x = π.
-          s.rotation.x = a.result.sticks[i] ? Math.PI : 0;
-          s.rotation.z *= 0.7;
+          // ③ 안착(또는 낙: 가장자리 너머로 떨어짐).
+          const f = (k - 0.82) / 0.18;
+          pos.copy(it.finalSpot);
+          if (it.offEdge) {
+            pos.y = 0.2 - f * f * 4.5;
+            s.rotation.x += dt * 7;
+            s.rotation.z += dt * 5;
+          } else {
+            pos.y = 0.2;
+            s.rotation.x = it.faceUp ? Math.PI : 0; // 배(흰면+표시) 위 / 등
+            s.rotation.z *= 0.6;
+          }
         }
+        s.position.copy(pos);
       });
       if (k >= 1) {
         this.throwAnim = null;

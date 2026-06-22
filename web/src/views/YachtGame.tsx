@@ -13,6 +13,7 @@ import SoundToggle from "../bot/SoundToggle";
 import Countdown from "../components/Countdown";
 import { useViewportSize } from "../bot/useViewport";
 import { resolvePlayerColor } from "../types";
+import Chat from "../components/Chat";
 
 export default function YachtGame() {
   const { state, send, leave } = useGame();
@@ -229,8 +230,9 @@ export default function YachtGame() {
           )}
         </div>
 
-        {/* 점수판 (N인) */}
-        <aside className="card scl" style={{ width: Math.min(120 + order.length * 56, 380), flexShrink: 0, overflowY: "auto", padding: "10px 10px" }}>
+        {/* 점수판 (N인) + 채팅 */}
+        <aside style={{ width: Math.min(120 + order.length * 56, 380), flexShrink: 0, display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+          <div className="card scl" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "10px 10px" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
               <tr style={{ color: "#a99a86" }}>
@@ -294,6 +296,8 @@ export default function YachtGame() {
               </tr>
             </tbody>
           </table>
+          </div>
+          <Chat />
         </aside>
       </div>
 
