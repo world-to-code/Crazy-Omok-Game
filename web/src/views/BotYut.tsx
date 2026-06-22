@@ -12,13 +12,14 @@ import {
   rollThrow,
   type MoveTarget,
 } from "../yut/engine";
-import { botChooseMove, botThrow } from "../yut/bot";
+import { botChooseMove } from "../yut/bot";
 import { THROW_LABEL, type ThrowResult, type YutState } from "../yut/types";
 import { botZodiac, zodiacOf } from "../yut/zodiac";
 import { YutScene } from "../yut/scene/scene";
 import { playCapture, playStone, playResult, playFanfare } from "../bot/sound";
 import SoundToggle from "../bot/SoundToggle";
 import { useViewportSize } from "../bot/useViewport";
+import PowerThrowButton from "../yut/PowerThrowButton";
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const groupKeyOf = (node: NodeId): NodeId => (node === HOME ? HOME : node);
@@ -190,10 +191,11 @@ export default function BotYut() {
       await delay(550);
       if (cancelled || !sceneRef.current) return;
       if (st.phase === "throw") {
-        const roll = botThrow();
+        const power = 0.45 + Math.random() * 0.4;
+        const roll = rollThrow(power);
         animatingRef.current = true;
         playStone();
-        await sceneRef.current.throwYut(roll);
+        await sceneRef.current.throwYut(roll, power);
         animatingRef.current = false;
         if (cancelled) return;
         setSt((s) => applyThrow(s, roll));
@@ -219,16 +221,19 @@ export default function BotYut() {
     if (st.phase === "over" && st.winner !== null) playResult(st.winner === 0);
   }, [st.phase, st.winner]);
 
-  // 사람: 윷 던지기.
-  const humanThrow = useCallback(async () => {
-    if (animatingRef.current || !sceneRef.current || st.turn !== 0 || st.phase !== "throw") return;
-    const roll = rollThrow();
-    animatingRef.current = true;
-    playStone();
-    await sceneRef.current.throwYut(roll);
-    animatingRef.current = false;
-    setSt((s) => applyThrow(s, roll));
-  }, [st.turn, st.phase]);
+  // 사람: 윷 던지기(세기 power).
+  const humanThrow = useCallback(
+    async (power: number) => {
+      if (animatingRef.current || !sceneRef.current || st.turn !== 0 || st.phase !== "throw") return;
+      const roll = rollThrow(power);
+      animatingRef.current = true;
+      playStone();
+      await sceneRef.current.throwYut(roll, power);
+      animatingRef.current = false;
+      setSt((s) => applyThrow(s, roll));
+    },
+    [st.turn, st.phase],
+  );
 
   // 캔버스 클릭: 말이 선택돼 있으면 도착 마커 클릭 시 이동, 아니면 말 선택(다른 말 클릭 시 갱신).
   const onCanvasPointerDown = useCallback(
@@ -338,16 +343,16 @@ export default function BotYut() {
                   style={{
                     fontSize: "clamp(64px, 12vw, 150px)",
                     fontWeight: 900,
-                    color: announce.bonus ? "#ffd24a" : "#f5ead0",
+                    color: announce.nak ? "#ff6a6a" : announce.bonus ? "#ffd24a" : "#f5ead0",
                     textShadow: "0 6px 26px rgba(0,0,0,.75)",
                     lineHeight: 1,
                   }}
                 >
-                  {THROW_LABEL[announce.name]}
+                  {announce.nak ? "낙!" : THROW_LABEL[announce.name]}
                 </div>
-                <div style={{ fontSize: "clamp(16px,2.4vw,26px)", fontWeight: 800, color: announce.bonus ? "#ffd24a" : "#c9b89f", marginTop: 4 }}>
-                  {announce.steps > 0 ? `${announce.steps}칸 전진` : "한 칸 뒤로"}
-                  {announce.bonus && " · 한 번 더! 🎉"}
+                <div style={{ fontSize: "clamp(16px,2.4vw,26px)", fontWeight: 800, color: announce.nak ? "#ff6a6a" : announce.bonus ? "#ffd24a" : "#c9b89f", marginTop: 4 }}>
+                  {announce.nak ? "판 밖! ⚠ 차례 넘어감" : announce.steps > 0 ? `${announce.steps}칸 전진` : "한 칸 뒤로"}
+                  {!announce.nak && announce.bonus && " · 한 번 더! 🎉"}
                 </div>
               </div>
             </div>
@@ -372,9 +377,7 @@ export default function BotYut() {
                   {botZ.emoji} 봇이 두는 중…
                 </div>
               ) : st.phase === "throw" ? (
-                <button className="big primary" onClick={humanThrow} style={{ fontSize: 18, padding: "12px 28px" }}>
-                  🎲 윷 던지기
-                </button>
+                <PowerThrowButton onThrow={humanThrow} />
               ) : (
                 <div style={{ padding: "9px 18px", borderRadius: 12, background: "rgba(20,14,22,.82)", color: "#f0d9a0", fontSize: 14 }}>
                   {selectableIds.length === 0

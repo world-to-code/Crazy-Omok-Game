@@ -37,6 +37,7 @@ export interface YutThrowInfo {
   steps: number;
   bonus: boolean;
   sticks: boolean[];
+  nak?: boolean; // 낙(판 밖) — 무효, 차례 넘어감
 }
 
 // 플레이어의 표시 색: 커스텀 색이 있으면 그것, 없으면 인덱스 기본색.
@@ -290,7 +291,7 @@ export type ServerMsg =
       queue: YutThrowInfo[];
       winner: string | null;
     }
-  | { type: "YutThrown"; by: string; result: YutThrowInfo }
+  | { type: "YutThrown"; by: string; result: YutThrowInfo; power: number }
   | { type: "YutMoved"; by: string; throw_index: number; key: string; route: string }
   | { type: "FlickDraft"; options: string[] }
   | { type: "FlickAiming"; owner: string; angle: number; power: number }
@@ -349,6 +350,6 @@ export type ClientMsg =
   | { type: "FlickDraftPick"; power: string }
   | { type: "FlickAim"; angle: number; power: number }
   | { type: "FlickAiming"; angle: number; power: number }
-  | { type: "YutThrow" }
+  | { type: "YutThrow"; power: number }
   | { type: "YutMove"; throw_index: number; key: string; route: string }
   | { type: "SetZodiac"; zodiac: string };

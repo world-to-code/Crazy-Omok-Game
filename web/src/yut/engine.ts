@@ -33,9 +33,22 @@ export function initState(humanFirst: boolean): YutState {
 
 // ===== 던지기 =====
 
-// 윷가락 4개. 각 앞면(배) 확률 flatProb. 한 가락(0번)은 백도 표식.
-export function rollThrow(flatProb = 0.5, rng: () => number = Math.random): ThrowResult {
-  const sticks = [0, 1, 2, 3].map(() => rng() < flatProb); // true = 앞면(배)
+const YUT: ThrowResult = { name: "yut", steps: 4, bonus: true, sticks: [true, true, true, true], nak: false };
+const MO: ThrowResult = { name: "mo", steps: 5, bonus: true, sticks: [false, false, false, false], nak: false };
+
+// 윷 던지기. power(0~1)가 셀수록 낙 위험↑, 대신 윷/모(대박)도↑.
+export function rollThrow(power = 0.6, rng: () => number = Math.random): ThrowResult {
+  const p = Math.max(0, Math.min(1, power));
+  // 낙: 세게 던질수록 판 밖으로 나갈 확률↑.
+  if (rng() < p * p * 0.3) {
+    return { name: "do", steps: 0, bonus: false, sticks: [false, false, false, false], nak: true };
+  }
+  // 대박 보너스: 세게 던질수록 윷/모가 더 잘 나온다.
+  if (rng() < p * 0.25) {
+    return rng() < 0.5 ? { ...YUT } : { ...MO };
+  }
+  // 일반: 윷가락 4개 각 앞면(배) 50%.
+  const sticks = [0, 1, 2, 3].map(() => rng() < 0.5); // true = 앞면(배)
   const flats = sticks.filter(Boolean).length;
   let name: ThrowName;
   let steps: number;
@@ -165,6 +178,19 @@ export function describeMove(
 // 던진다. 결과를 큐에 넣고 단계 갱신.
 export function applyThrow(s: YutState, t: ThrowResult): YutState {
   if (s.phase !== "throw") return s;
+  // 낙: 무효 — 쌓인 결과까지 잃고 차례가 넘어간다.
+  if (t.nak) {
+    const n = Math.max(1, new Set(s.pieces.map((p) => p.owner)).size);
+    return {
+      ...s,
+      queue: [],
+      pendingBonus: 0,
+      phase: "throw",
+      turn: (s.turn + 1) % n,
+      lastThrow: t,
+      log: [...s.log, `${s.turn === 0 ? "나" : "봇"}: 낙! ⚠ 차례 넘어감`],
+    };
+  }
   const queue = [...s.queue, t];
   const log = [...s.log, `${s.turn === 0 ? "나" : "봇"}: ${THROW_LABEL[t.name]}${t.bonus ? " (한 번 더!)" : ""}`];
   if (t.bonus) {

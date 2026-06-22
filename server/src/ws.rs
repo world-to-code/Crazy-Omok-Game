@@ -786,7 +786,7 @@ fn handle_client_msg(
             room.broadcast(&snap);
         }
 
-        ClientMsg::YutThrow => {
+        ClientMsg::YutThrow { power } => {
             let Some((code, pid)) = session.clone() else {
                 return;
             };
@@ -805,7 +805,7 @@ fn handle_client_msg(
                 if y.current_turn() != Some(pid) || y.phase != crate::yut::Phase::Throw {
                     return;
                 }
-                result = y.roll();
+                result = y.roll(power);
                 y.apply_throw(result.clone());
                 y.discard_unplayable();
             }
@@ -814,7 +814,7 @@ fn handle_client_msg(
             let generation = room.turn_generation;
             let limit = room.turn_limit_secs;
             room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
-            room.broadcast(&ServerMsg::YutThrown { by: pid, result });
+            room.broadcast(&ServerMsg::YutThrown { by: pid, result, power });
             let snap = room.snapshot();
             room.broadcast(&snap);
             spawn_yut_timer(state.clone(), code, generation, limit);

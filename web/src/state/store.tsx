@@ -115,7 +115,7 @@ export interface GameState {
   } | null;
   // 애니메이션 트리거(던지기/이동). 컴포넌트가 seq 변화로 소비.
   yutEvent:
-    | { seq: number; kind: "throw"; by: string; result: YutThrowInfo }
+    | { seq: number; kind: "throw"; by: string; result: YutThrowInfo; power: number }
     | { seq: number; kind: "move"; by: string; throwIndex: number; key: string; route: string }
     | null;
 }
@@ -492,7 +492,7 @@ function applyMsg(s: GameState, m: ServerMsg): GameState {
     case "YutThrown":
       return {
         ...s,
-        yutEvent: { seq: (s.yutEvent?.seq ?? 0) + 1, kind: "throw", by: m.by, result: m.result },
+        yutEvent: { seq: (s.yutEvent?.seq ?? 0) + 1, kind: "throw", by: m.by, result: m.result, power: m.power },
       };
     case "YutMoved":
       return {

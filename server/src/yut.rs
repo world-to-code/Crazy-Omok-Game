@@ -166,6 +166,8 @@ pub struct ThrowInfo {
     pub steps: i32,
     pub bonus: bool,
     pub sticks: [bool; 4],
+    #[serde(default)]
+    pub nak: bool, // 낙(판 밖) — 무효, 차례 넘어감
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,8 +237,22 @@ impl YutGame {
     }
 
     // 윷가락 4개를 굴린다(서버 권위). 0번 가락이 백도 표식.
-    pub fn roll(&self) -> ThrowInfo {
+    // power(0~1)가 셀수록 낙 위험↑, 대신 윷/모(대박)도↑.
+    pub fn roll(&self, power: f32) -> ThrowInfo {
+        let p = power.clamp(0.0, 1.0) as f64;
         let mut rng = rand::thread_rng();
+        // 낙: 세게 던질수록 판 밖으로.
+        if rng.gen_bool(p * p * 0.3) {
+            return ThrowInfo { name: "do".into(), steps: 0, bonus: false, sticks: [false; 4], nak: true };
+        }
+        // 대박 보너스: 세게 던질수록 윷/모가 더 잘 나온다.
+        if rng.gen_bool(p * 0.25) {
+            return if rng.gen_bool(0.5) {
+                ThrowInfo { name: "yut".into(), steps: 4, bonus: true, sticks: [true; 4], nak: false }
+            } else {
+                ThrowInfo { name: "mo".into(), steps: 5, bonus: true, sticks: [false; 4], nak: false }
+            };
+        }
         let sticks = [rng.gen_bool(0.5), rng.gen_bool(0.5), rng.gen_bool(0.5), rng.gen_bool(0.5)];
         let flats = sticks.iter().filter(|b| **b).count();
         let (name, steps): (&str, i32) = if flats == 0 {
@@ -248,11 +264,22 @@ impl YutGame {
         } else {
             (["do", "gae", "geol"][flats - 1], flats as i32)
         };
-        ThrowInfo { name: name.into(), steps, bonus: name == "yut" || name == "mo", sticks }
+        ThrowInfo { name: name.into(), steps, bonus: name == "yut" || name == "mo", sticks, nak: false }
     }
 
     pub fn apply_throw(&mut self, t: ThrowInfo) {
         if self.phase != Phase::Throw {
+            return;
+        }
+        // 낙: 무효 — 쌓인 결과까지 잃고 차례가 넘어간다.
+        if t.nak {
+            self.last_throw = Some(t);
+            self.queue.clear();
+            self.pending_bonus = 0;
+            self.phase = Phase::Throw;
+            if !self.order.is_empty() {
+                self.turn = (self.turn + 1) % self.order.len();
+            }
             return;
         }
         let bonus = t.bonus;
@@ -464,7 +491,8 @@ mod tests {
                 steps += 1;
                 match y.phase {
                     Phase::Throw => {
-                        let r = y.roll();
+                        let pw = ((g * 13 + steps) % 11) as f32 / 11.0; // 다양한 세기로 낙/대박 검증
+                        let r = y.roll(pw);
                         y.apply_throw(r);
                         y.discard_unplayable();
                     }

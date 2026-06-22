@@ -97,8 +97,11 @@ pub enum ClientMsg {
     FlickAiming { angle: f64, power: f64 },
     /// (체스) 현재 단계에 칸 투표 (r=랭크 0~7, f=파일 0~7).
     ChessVote { r: u8, f: u8 },
-    /// (윷놀이) 내 차례에 윷을 던진다(서버가 결과를 굴림).
-    YutThrow,
+    /// (윷놀이) 내 차례에 윷을 던진다(서버가 결과를 굴림). power=던지는 세기(연출용).
+    YutThrow {
+        #[serde(default)]
+        power: f32,
+    },
     /// (윷놀이) 던진 결과(throw_index)를 말 그룹(key)에 route 경로로 적용.
     YutMove {
         throw_index: usize,
@@ -252,10 +255,11 @@ pub enum ServerMsg {
         queue: Vec<crate::yut::ThrowInfo>,
         winner: Option<Uuid>,
     },
-    /// (윷놀이) 누군가 윷을 던진 결과 — 던지기 애니메이션용.
+    /// (윷놀이) 누군가 윷을 던진 결과 — 던지기 애니메이션용. power=세기(연출).
     YutThrown {
         by: Uuid,
         result: crate::yut::ThrowInfo,
+        power: f32,
     },
     /// (윷놀이) 누군가 말을 움직임 — 이동 애니메이션 힌트(클라가 경로 재계산).
     YutMoved {

@@ -8,6 +8,7 @@ export interface ThrowResult {
   steps: number; // 백도=-1, 도1, 개2, 걸3, 윷4, 모5
   bonus: boolean; // 윷/모 → 추가 던지기
   sticks: boolean[]; // 윷가락 4개 앞면(배)=true 시각화용
+  nak?: boolean; // 낙(판 밖) — 무효, 차례 넘어감
 }
 
 export const THROW_LABEL: Record<ThrowName, string> = {

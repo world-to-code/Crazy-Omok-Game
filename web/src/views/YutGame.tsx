@@ -11,6 +11,7 @@ import SoundToggle from "../bot/SoundToggle";
 import Countdown from "../components/Countdown";
 import { useViewportSize } from "../bot/useViewport";
 import { resolvePlayerColor } from "../types";
+import PowerThrowButton from "../yut/PowerThrowButton";
 
 const groupKeyOf = (node: NodeId): NodeId => (node === HOME ? HOME : node);
 const CONFETTI = ["🎉", "🎊", "✨", "⭐", "🏆", "🪅"];
@@ -128,13 +129,18 @@ export default function YutGame() {
     (async () => {
       if (evt.kind === "throw") {
         playStone();
-        await scene.throwYut(evt.result as unknown as ThrowResult);
+        await scene.throwYut(evt.result as unknown as ThrowResult, evt.power);
         if (cancelled) return;
         if (announceTimer.current) clearTimeout(announceTimer.current);
         setAnnounce(evt.result as unknown as ThrowResult);
         if (evt.result.bonus) playFanfare();
         announceTimer.current = setTimeout(() => setAnnounce(null), 1300);
-        setLogLines((l) => [...l, `${nameOf(evt.by)}: ${THROW_LABEL[evt.result.name as ThrowName] ?? evt.result.name}${evt.result.bonus ? " (한 번 더!)" : ""}`]);
+        setLogLines((l) => [
+          ...l,
+          evt.result.nak
+            ? `${nameOf(evt.by)}: 낙! ⚠ 차례 넘어감`
+            : `${nameOf(evt.by)}: ${THROW_LABEL[evt.result.name as ThrowName] ?? evt.result.name}${evt.result.bonus ? " (한 번 더!)" : ""}`,
+        ]);
       } else {
         const mirror = mirrorRef.current;
         if (mirror) {
@@ -338,12 +344,12 @@ export default function YutGame() {
           {announce && (
             <div key={logLines.length} style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
               <div style={{ animation: "yut-pop 1.3s ease-out forwards", textAlign: "center" }}>
-                <div style={{ fontSize: "clamp(64px, 12vw, 150px)", fontWeight: 900, color: announce.bonus ? "#ffd24a" : "#f5ead0", textShadow: "0 6px 26px rgba(0,0,0,.75)", lineHeight: 1 }}>
-                  {THROW_LABEL[announce.name]}
+                <div style={{ fontSize: "clamp(64px, 12vw, 150px)", fontWeight: 900, color: announce.nak ? "#ff6a6a" : announce.bonus ? "#ffd24a" : "#f5ead0", textShadow: "0 6px 26px rgba(0,0,0,.75)", lineHeight: 1 }}>
+                  {announce.nak ? "낙!" : THROW_LABEL[announce.name]}
                 </div>
-                <div style={{ fontSize: "clamp(16px,2.4vw,26px)", fontWeight: 800, color: announce.bonus ? "#ffd24a" : "#c9b89f", marginTop: 4 }}>
-                  {announce.steps > 0 ? `${announce.steps}칸 전진` : "한 칸 뒤로"}
-                  {announce.bonus && " · 한 번 더! 🎉"}
+                <div style={{ fontSize: "clamp(16px,2.4vw,26px)", fontWeight: 800, color: announce.nak ? "#ff6a6a" : announce.bonus ? "#ffd24a" : "#c9b89f", marginTop: 4 }}>
+                  {announce.nak ? "판 밖! ⚠ 차례 넘어감" : announce.steps > 0 ? `${announce.steps}칸 전진` : "한 칸 뒤로"}
+                  {!announce.nak && announce.bonus && " · 한 번 더! 🎉"}
                 </div>
               </div>
             </div>
@@ -368,9 +374,7 @@ export default function YutGame() {
                   {turnZ?.emoji} {turnPlayer?.nickname ?? ""} 차례를 기다리는 중…
                 </div>
               ) : yut.phase === "throw" ? (
-                <button className="big primary" style={{ fontSize: 18, padding: "12px 28px" }} onClick={() => send({ type: "YutThrow" })}>
-                  🎲 윷 던지기
-                </button>
+                <PowerThrowButton onThrow={(power) => send({ type: "YutThrow", power })} />
               ) : (
                 <div style={{ padding: "9px 18px", borderRadius: 12, background: "rgba(20,14,22,.82)", color: "#f0d9a0", fontSize: 14 }}>
                   {selectableIds.length === 0

@@ -76,7 +76,9 @@ export class YutScene {
   private templates = new Map<string, Template>();
   private tokens = new Map<number, TokenRec>();
   private sticks: THREE.Group[] = [];
-  private throwAnim: { t: number; dur: number; result: ThrowResult; onDone: () => void } | null = null;
+  private throwAnim:
+    | { t: number; dur: number; result: ThrowResult; power: number; lands: THREE.Vector3[]; onDone: () => void }
+    | null = null;
   private highlightRing: THREE.Mesh | null = null;
   private raycaster = new THREE.Raycaster();
   private selectable = new Set<number>();
@@ -95,10 +97,11 @@ export class YutScene {
     this.renderer.toneMappingExposure = 1.2;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x141017, 16, 36);
+    this.scene.fog = new THREE.Fog(0x141017, 22, 50);
 
-    this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 100);
-    this.camera.position.set(0, 14.5, 13.5);
+    // 판을 둘러싼 대기 말들까지 보이도록 약간 당겨 잡는다.
+    this.camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
+    this.camera.position.set(0, 17.5, 16.5);
     this.camera.lookAt(0, 0, 0);
 
     this.buildLights();
@@ -112,10 +115,10 @@ export class YutScene {
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.42));
     this.scene.add(new THREE.HemisphereLight(0xfff4e0, 0x261f33, 0.55));
     const key = new THREE.DirectionalLight(0xfff1d8, 1.25);
-    key.position.set(6, 15, 8);
+    key.position.set(6, 16, 8);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    const d = 13;
+    const d = 18;
     key.shadow.camera.left = -d;
     key.shadow.camera.right = d;
     key.shadow.camera.top = d;
@@ -130,7 +133,7 @@ export class YutScene {
 
   private buildBoard() {
     const plate = new THREE.Mesh(
-      new THREE.BoxGeometry(R * 2.5, 0.5, R * 2.5),
+      new THREE.BoxGeometry(R * 3.7, 0.5, R * 3.7),
       new THREE.MeshStandardMaterial({ color: 0x2a1f17, roughness: 0.9 }),
     );
     plate.position.y = -0.25;
@@ -419,16 +422,17 @@ export class YutScene {
     const key = `${p.owner}:${p.node}`;
     const idx = slots.get(key) ?? 0;
     slots.set(key, idx + 1);
+    // 대기/완주 말은 판(놀이판) 바깥에 플레이어별로 둘러싸듯 배치(오각형 등).
     if (p.node === HOME) {
-      const c = this.ownerSpot(p.owner, 1.32);
+      const c = this.ownerSpot(p.owner, 1.72);
       const col = idx % 2;
       const row = Math.floor(idx / 2);
       return new THREE.Vector3(W(c.x) + (col * 0.46 - 0.23), 0, W(c.y) + (row * 0.46 - 0.23));
     }
     if (p.node === GOAL) {
-      // 완주 말은 자기 구역에 위로 쌓이는 더미(가로로 안 퍼져 판 밖으로 안 나감).
-      const c = this.ownerSpot(p.owner, 1.52);
-      return new THREE.Vector3(W(c.x), idx * 0.42, W(c.y));
+      // 완주 말은 자기 구역 바깥에 위로 쌓이는 더미.
+      const c = this.ownerSpot(p.owner, 1.72);
+      return new THREE.Vector3(W(c.x) + 0.5, idx * 0.42, W(c.y) + 0.5);
     }
     return this.worldOf(p.node).setY(idx * 0.62); // 업기: 위로 쌓기
   }
@@ -510,9 +514,20 @@ export class YutScene {
     this.highlightRing.visible = true;
   }
 
-  throwYut(result: ThrowResult): Promise<void> {
+  // 윷을 판 위로 던진다. power(0~1)는 던지는 세기(연출). 낙이면 판 밖으로 굴러떨어진다.
+  throwYut(result: ThrowResult, power = 0.6): Promise<void> {
+    // 시작 자세로 리셋(앞쪽 트레이, 배가 위).
+    this.sticks.forEach((s, i) => {
+      s.position.copy(this.stickRest(i));
+      s.rotation.set(Math.PI, 0, 0);
+    });
+    // 착지 지점: 보통은 판 중앙 부근, 낙이면 판 밖(앞 가장자리 너머).
+    const lands = this.sticks.map((_, i) => {
+      if (result.nak) return new THREE.Vector3((i - 1.5) * 0.7, 0.2, W(1.7) + i * 0.15);
+      return new THREE.Vector3((i - 1.5) * 0.62, 0.2, W(-0.12) + (i % 2) * 0.5 - 0.25);
+    });
     return new Promise((resolve) => {
-      this.throwAnim = { t: 0, dur: 1.15, result, onDone: resolve };
+      this.throwAnim = { t: 0, dur: 1.2, result, power: Math.max(0.15, Math.min(1, power)), lands, onDone: resolve };
     });
   }
 
@@ -739,14 +754,26 @@ export class YutScene {
       const a = this.throwAnim;
       a.t += dt;
       const k = Math.min(1, a.t / a.dur);
+      const peak = 2.2 + a.power * 3.4; // 세기에 따라 더 높이/멀리
+      const spin = (12 + a.power * 10);
       this.sticks.forEach((s, i) => {
-        const rest = this.stickRest(i);
-        s.position.x = rest.x;
-        s.position.z = rest.z;
-        s.position.y = rest.y + Math.sin(k * Math.PI) * (3.3 + i * 0.18);
+        const start = this.stickRest(i);
+        const land = a.lands[i];
+        // 트레이 → 착지 지점으로 포물선 비행.
+        s.position.x = start.x + (land.x - start.x) * k;
+        s.position.z = start.z + (land.z - start.z) * k;
+        let y = start.y + Math.sin(Math.min(1, k) * Math.PI) * peak + (land.y - start.y) * k;
+        if (a.result.nak && k > 0.8) {
+          // 낙: 가장자리 너머로 굴러 떨어진다.
+          y -= ((k - 0.8) / 0.2) * 3.4;
+        }
+        s.position.y = y;
         if (k < 0.82) {
-          s.rotation.x += dt * (13 + i * 2);
+          s.rotation.x += dt * (spin + i * 2);
           s.rotation.z = Math.sin(a.t * 9 + i) * 0.42;
+        } else if (a.result.nak) {
+          s.rotation.x += dt * 9; // 계속 구름
+          s.rotation.z += dt * 4;
         } else {
           // 배(하얀 면, 표시 있음)가 위 = 앞면. rotation.x = π.
           s.rotation.x = a.result.sticks[i] ? Math.PI : 0;
