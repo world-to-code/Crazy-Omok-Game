@@ -17,7 +17,7 @@ import {
   type Category,
   type YachtState,
 } from "../yacht/engine";
-import { botBestCategory, botKeep } from "../yacht/bot";
+import { botBestCategory, botDecide } from "../yacht/bot";
 import { YachtScene } from "../yacht/scene/scene";
 import { playStone, playResult, playFanfare } from "../bot/sound";
 import SoundToggle from "../bot/SoundToggle";
@@ -164,13 +164,16 @@ export default function BotYacht() {
         return;
       }
       if (st.rollsLeft > 0) {
-        const keep = botKeep(st.dice);
-        sceneRef.current.loadCup(st.dice, keep, false);
-        sceneRef.current.setShake(0.9);
-        await delay(400);
-        if (cancelled) return;
-        await doRoll(st, keep);
-        return;
+        // 킵/리롤을 기대값으로 판단 — 더 굴리는 게 이득일 때만 리롤, 아니면 바로 기록.
+        const { keep, reroll } = botDecide(st);
+        if (reroll) {
+          sceneRef.current.loadCup(st.dice, keep, false);
+          sceneRef.current.setShake(0.9);
+          await delay(400);
+          if (cancelled) return;
+          await doRoll(st, keep);
+          return;
+        }
       }
       // 점수 기록.
       await delay(400);
