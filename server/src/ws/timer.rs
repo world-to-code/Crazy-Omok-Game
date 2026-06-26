@@ -7,8 +7,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::protocol::ServerMsg;
-use crate::state::{now_ms, AppState, GameKind, GameMode, RoomStatus};
+use crate::state::{AppState, GameKind, GameMode, RoomStatus};
 
 /// 어떤 게임의 타임아웃 처리를 할지.
 pub(crate) enum TurnKind {
@@ -46,22 +45,7 @@ pub(crate) fn spawn(
                     super::resolve_team_turn(&state, room, &code);
                     return;
                 }
-                let n = room.order.len();
-                if n == 0 {
-                    return;
-                }
-                room.turn_idx = (room.turn_idx + 1) % n;
-                if let Some(next) = super::begin_turn(room) {
-                    let deadline = room.deadline_ms.unwrap();
-                    let new_gen = room.turn_generation;
-                    let limit = room.turn_limit_secs;
-                    room.broadcast(&ServerMsg::TurnChanged {
-                        current_turn: next,
-                        deadline_ms: deadline,
-                        server_now_ms: now_ms(),
-                    });
-                    spawn(state.clone(), code.clone(), new_gen, limit, TurnKind::Turn);
-                }
+                super::advance_classic_turn(&state, room, &code);
             }
 
             TurnKind::Chess => {
@@ -107,51 +91,14 @@ pub(crate) fn spawn(
                 if room.game != GameKind::Yut {
                     return;
                 }
-                if let Some(y) = room.yut.as_mut() {
-                    y.skip_turn();
-                }
-                room.turn_idx = room.yut.as_ref().map(|y| y.turn).unwrap_or(0);
-                room.turn_generation += 1;
-                let new_gen = room.turn_generation;
-                let limit = room.turn_limit_secs;
-                room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
-                let snap = room.snapshot();
-                room.broadcast(&snap);
-                spawn(state.clone(), code.clone(), new_gen, limit, TurnKind::Yut);
+                super::skip_yut_turn(&state, room, &code);
             }
 
             TurnKind::Yacht => {
                 if room.game != GameKind::Yacht {
                     return;
                 }
-                let over;
-                {
-                    let Some(y) = room.yacht.as_mut() else {
-                        return;
-                    };
-                    y.skip_turn();
-                    over = y.phase == crate::yacht::Phase::Over;
-                }
-                room.turn_idx = room.yacht.as_ref().map(|y| y.turn).unwrap_or(0);
-                room.turn_generation += 1;
-                if over {
-                    room.status = RoomStatus::Finished;
-                    room.winner = room.yacht.as_ref().and_then(|y| y.winner_id());
-                    let snap = room.snapshot();
-                    room.broadcast(&snap);
-                    room.broadcast(&ServerMsg::GameOver {
-                        winner: room.winner,
-                        winning_team: None,
-                        winning_line: Vec::new(),
-                    });
-                } else {
-                    let new_gen = room.turn_generation;
-                    let limit = room.turn_limit_secs;
-                    room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
-                    let snap = room.snapshot();
-                    room.broadcast(&snap);
-                    spawn(state.clone(), code.clone(), new_gen, limit, TurnKind::Yacht);
-                }
+                super::skip_yacht_turn(&state, room, &code);
             }
         }
     });

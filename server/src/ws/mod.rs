@@ -739,19 +739,7 @@ fn handle_client_msg(
             }
 
             // 다음 차례로
-            let n = room.order.len();
-            room.turn_idx = (room.turn_idx + 1) % n;
-            if let Some(next) = begin_turn(room) {
-                let deadline = room.deadline_ms.unwrap();
-                let generation = room.turn_generation;
-                let limit = room.turn_limit_secs;
-                room.broadcast(&ServerMsg::TurnChanged {
-                    current_turn: next,
-                    deadline_ms: deadline,
-                    server_now_ms: now_ms(),
-                });
-                spawn_turn_timer(state.clone(), code.to_string(), generation, limit);
-            }
+            advance_classic_turn(state, room, code);
         }
 
         ClientMsg::Chat { text } => {
@@ -1483,43 +1471,12 @@ fn cleanup_departed(
 
     // (윷놀이) 떠난 사람 차례였다면 다음으로 넘긴다(윷 상태도 함께 전진).
     if room.game == GameKind::Yut && room.status == RoomStatus::Playing && was_turn {
-        if let Some(y) = room.yut.as_mut() {
-            y.skip_turn();
-        }
-        room.turn_idx = room.yut.as_ref().map(|y| y.turn).unwrap_or(0);
-        room.turn_generation += 1;
-        let gen = room.turn_generation;
-        let limit = room.turn_limit_secs;
-        room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
-        let snap = room.snapshot();
-        room.broadcast(&snap);
-        spawn_yut_timer(state.clone(), code.to_string(), gen, limit);
+        skip_yut_turn(state, room, code);
     }
 
     // (요트) 떠난 사람 차례였다면 강제 마감 후 다음으로.
     if room.game == GameKind::Yacht && room.status == RoomStatus::Playing && was_turn {
-        let over;
-        {
-            if let Some(y) = room.yacht.as_mut() {
-                y.skip_turn();
-                over = y.phase == crate::yacht::Phase::Over;
-            } else {
-                over = false;
-            }
-        }
-        room.turn_idx = room.yacht.as_ref().map(|y| y.turn).unwrap_or(0);
-        room.turn_generation += 1;
-        if over {
-            room.status = RoomStatus::Finished;
-            room.winner = room.yacht.as_ref().and_then(|y| y.winner_id());
-        } else {
-            let gen = room.turn_generation;
-            let limit = room.turn_limit_secs;
-            room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
-            spawn_yacht_timer(state.clone(), code.to_string(), gen, limit);
-        }
-        let snap = room.snapshot();
-        room.broadcast(&snap);
+        skip_yacht_turn(state, room, code);
     }
 
     // (클래식 오목) 떠난 사람 차례였다면 다음으로 넘긴다.
@@ -1528,20 +1485,8 @@ fn cleanup_departed(
         && room.game != GameKind::Yacht
         && room.status == RoomStatus::Playing
         && was_turn
-        && !room.order.is_empty()
     {
-        room.turn_idx = (room.turn_idx + 1) % room.order.len();
-        if let Some(next) = begin_turn(room) {
-            let deadline = room.deadline_ms.unwrap();
-            let generation = room.turn_generation;
-            let limit = room.turn_limit_secs;
-            room.broadcast(&ServerMsg::TurnChanged {
-                current_turn: next,
-                deadline_ms: deadline,
-                    server_now_ms: now_ms(),
-            });
-            spawn_turn_timer(state.clone(), code.to_string(), generation, limit);
-        }
+        advance_classic_turn(state, room, code);
     }
 
     // (팀전) 떠난 사람의 표 제거 후, 남은 인원이 모두 투표했거나
@@ -1643,6 +1588,77 @@ fn begin_turn(room: &mut Room) -> Option<Uuid> {
         room.turn_idx = (room.turn_idx + 1) % n;
     }
     None
+}
+
+/// (오목 클래식) turn_idx를 한 칸 옮겨 다음 연결 플레이어의 차례를 확정하고
+/// TurnChanged 브로드캐스트 + 턴 타이머를 재무장한다.
+/// 착수 후(PlaceStone)·타임아웃(timer)·차례 도중 이탈(cleanup_departed)에서 공유.
+fn advance_classic_turn(state: &Arc<AppState>, room: &mut Room, code: &str) {
+    let n = room.order.len();
+    if n == 0 {
+        return;
+    }
+    room.turn_idx = (room.turn_idx + 1) % n;
+    if let Some(next) = begin_turn(room) {
+        let deadline = room.deadline_ms.unwrap();
+        let generation = room.turn_generation;
+        let limit = room.turn_limit_secs;
+        room.broadcast(&ServerMsg::TurnChanged {
+            current_turn: next,
+            deadline_ms: deadline,
+            server_now_ms: now_ms(),
+        });
+        spawn_turn_timer(state.clone(), code.to_string(), generation, limit);
+    }
+}
+
+/// (윷놀이) 현재 차례를 건너뛰고 다음 사람에게 넘긴 뒤 스냅샷 브로드캐스트 + 타이머 재무장.
+/// 타임아웃(timer)·차례 도중 이탈(cleanup_departed)에서 공유.
+fn skip_yut_turn(state: &Arc<AppState>, room: &mut Room, code: &str) {
+    if let Some(y) = room.yut.as_mut() {
+        y.skip_turn();
+    }
+    room.turn_idx = room.yut.as_ref().map(|y| y.turn).unwrap_or(0);
+    room.turn_generation += 1;
+    let gen = room.turn_generation;
+    let limit = room.turn_limit_secs;
+    room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
+    let snap = room.snapshot();
+    room.broadcast(&snap);
+    spawn_yut_timer(state.clone(), code.to_string(), gen, limit);
+}
+
+/// (요트) 현재 차례를 강제 마감하고 다음 사람에게 넘긴다. 마지막 차례였다면
+/// 게임을 종료하고 GameOver를 알린다. 타임아웃(timer)·차례 도중 이탈(cleanup_departed)에서 공유.
+fn skip_yacht_turn(state: &Arc<AppState>, room: &mut Room, code: &str) {
+    let over;
+    {
+        let Some(y) = room.yacht.as_mut() else {
+            return;
+        };
+        y.skip_turn();
+        over = y.phase == crate::yacht::Phase::Over;
+    }
+    room.turn_idx = room.yacht.as_ref().map(|y| y.turn).unwrap_or(0);
+    room.turn_generation += 1;
+    if over {
+        room.status = RoomStatus::Finished;
+        room.winner = room.yacht.as_ref().and_then(|y| y.winner_id());
+        let snap = room.snapshot();
+        room.broadcast(&snap);
+        room.broadcast(&ServerMsg::GameOver {
+            winner: room.winner,
+            winning_team: None,
+            winning_line: Vec::new(),
+        });
+    } else {
+        let new_gen = room.turn_generation;
+        let limit = room.turn_limit_secs;
+        room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
+        let snap = room.snapshot();
+        room.broadcast(&snap);
+        spawn_yacht_timer(state.clone(), code.to_string(), new_gen, limit);
+    }
 }
 
 /// 제한시간이 지나면 자동으로 다음 차례로 넘기는 타이머(오목 클래식/팀전).
