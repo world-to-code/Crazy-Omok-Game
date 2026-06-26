@@ -1,4 +1,7 @@
 //! WebSocket 연결 핸들러와 메시지 라우팅, 턴 타이머.
+mod guard;
+mod timer;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -308,12 +311,10 @@ fn handle_client_msg(
             turn_limit_secs,
             password,
         } => {
-            let Some((code, pid)) = session.clone() else {
-                err(tx, "방에 참가하지 않았습니다");
+            let Some(mut g) = guard::open_or_err(state, session, tx) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((_, pid, room)) = g.parts() else {
                 return;
             };
             if room.host_id != pid {
@@ -347,12 +348,10 @@ fn handle_client_msg(
             order,
             first_team,
         } => {
-            let Some((code, pid)) = session.clone() else {
-                err(tx, "방에 참가하지 않았습니다");
+            let Some(mut g) = guard::open_or_err(state, session, tx) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((code, pid, room)) = g.parts() else {
                 return;
             };
             if room.host_id != pid {
@@ -411,7 +410,7 @@ fn handle_client_msg(
                 }
                 let snap = room.snapshot();
                 room.broadcast(&snap);
-                spawn_flick_timer(state.clone(), code, generation, limit);
+                spawn_flick_timer(state.clone(), code.to_string(), generation, limit);
                 return;
             }
 
@@ -430,7 +429,7 @@ fn handle_client_msg(
                 room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
                 let snap = room.snapshot();
                 room.broadcast(&snap);
-                spawn_chess_timer(state.clone(), code, generation, limit);
+                spawn_chess_timer(state.clone(), code.to_string(), generation, limit);
                 return;
             }
 
@@ -460,7 +459,7 @@ fn handle_client_msg(
                 room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
                 let snap = room.snapshot();
                 room.broadcast(&snap);
-                spawn_yut_timer(state.clone(), code, generation, limit);
+                spawn_yut_timer(state.clone(), code.to_string(), generation, limit);
                 return;
             }
 
@@ -490,7 +489,7 @@ fn handle_client_msg(
                 room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
                 let snap = room.snapshot();
                 room.broadcast(&snap);
-                spawn_yacht_timer(state.clone(), code, generation, limit);
+                spawn_yacht_timer(state.clone(), code.to_string(), generation, limit);
                 return;
             }
 
@@ -518,7 +517,7 @@ fn handle_client_msg(
                 });
                 let snap = room.snapshot();
                 room.broadcast(&snap);
-                spawn_turn_timer(state.clone(), code, generation, limit);
+                spawn_turn_timer(state.clone(), code.to_string(), generation, limit);
             } else {
                 if room.players.len() < 2 {
                     err(tx, "2명 이상이어야 시작할 수 있습니다");
@@ -548,17 +547,16 @@ fn handle_client_msg(
                     });
                     let snap = room.snapshot();
                     room.broadcast(&snap);
-                    spawn_turn_timer(state.clone(), code, generation, limit);
+                    spawn_turn_timer(state.clone(), code.to_string(), generation, limit);
                 }
             }
         }
 
         ClientMsg::JoinTeam { team } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((_, pid, room)) = g.parts() else {
                 return;
             };
             if room.mode != GameMode::Team {
@@ -577,11 +575,10 @@ fn handle_client_msg(
         }
 
         ClientMsg::AssignTeam { player_id, team } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((_, pid, room)) = g.parts() else {
                 return;
             };
             if room.mode != GameMode::Team {
@@ -604,11 +601,10 @@ fn handle_client_msg(
         }
 
         ClientMsg::Vote { x, y } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((code, pid, room)) = g.parts() else {
                 return;
             };
             if room.mode != GameMode::Team || room.status != RoomStatus::Playing {
@@ -643,16 +639,15 @@ fn handle_client_msg(
 
             // 전원 투표 완료 시 즉시 확정
             if voters > 0 && voted >= voters {
-                resolve_team_turn(state, room, &code);
+                resolve_team_turn(state, room, code);
             }
         }
 
         ClientMsg::ChessVote { r, f } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((code, pid, room)) = g.parts() else {
                 return;
             };
             if room.game != GameKind::Chess || room.status != RoomStatus::Playing {
@@ -690,17 +685,15 @@ fn handle_client_msg(
                 },
             );
             if voters > 0 && voted >= voters {
-                resolve_chess(state, room, &code);
+                resolve_chess(state, room, code);
             }
         }
 
         ClientMsg::PlaceStone { x, y } => {
-            let Some((code, pid)) = session.clone() else {
-                err(tx, "방에 참가하지 않았습니다");
+            let Some(mut g) = guard::open_or_err(state, session, tx) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((code, pid, room)) = g.parts() else {
                 return;
             };
             if room.mode == GameMode::Team {
@@ -757,20 +750,19 @@ fn handle_client_msg(
                     deadline_ms: deadline,
                     server_now_ms: now_ms(),
                 });
-                spawn_turn_timer(state.clone(), code, generation, limit);
+                spawn_turn_timer(state.clone(), code.to_string(), generation, limit);
             }
         }
 
         ClientMsg::Chat { text } => {
-            let Some((code, pid)) = session.clone() else {
-                return;
-            };
             let text = trim_len(text, MAX_CHAT, "");
             if text.is_empty() {
                 return;
             }
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some(mut g) = guard::open(state, session) else {
+                return;
+            };
+            let Some((_, pid, room)) = g.parts() else {
                 return;
             };
             let now = now_ms();
@@ -792,11 +784,10 @@ fn handle_client_msg(
         }
 
         ClientMsg::ReturnToLobby => {
-            let Some((code, _pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((_, _, room)) = g.parts() else {
                 return;
             };
             // 종료된 게임만 로비로 되돌린다(진행 중에는 무시).
@@ -821,11 +812,10 @@ fn handle_client_msg(
         }
 
         ClientMsg::YutThrow { power } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((code, pid, room)) = g.parts() else {
                 return;
             };
             if room.game != GameKind::Yut || room.status != RoomStatus::Playing {
@@ -851,15 +841,14 @@ fn handle_client_msg(
             room.broadcast(&ServerMsg::YutThrown { by: pid, result, power });
             let snap = room.snapshot();
             room.broadcast(&snap);
-            spawn_yut_timer(state.clone(), code, generation, limit);
+            spawn_yut_timer(state.clone(), code.to_string(), generation, limit);
         }
 
         ClientMsg::YutMove { throw_index, key, route } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((code, pid, room)) = g.parts() else {
                 return;
             };
             if room.game != GameKind::Yut || room.status != RoomStatus::Playing {
@@ -903,16 +892,15 @@ fn handle_client_msg(
                 room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
                 let snap = room.snapshot();
                 room.broadcast(&snap);
-                spawn_yut_timer(state.clone(), code, generation, limit);
+                spawn_yut_timer(state.clone(), code.to_string(), generation, limit);
             }
         }
 
         ClientMsg::SetZodiac { zodiac } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((_, pid, room)) = g.parts() else {
                 return;
             };
             if room.status == RoomStatus::Playing {
@@ -927,11 +915,10 @@ fn handle_client_msg(
         }
 
         ClientMsg::YachtRoll => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((code, pid, room)) = g.parts() else {
                 return;
             };
             if room.game != GameKind::Yacht || room.status != RoomStatus::Playing {
@@ -959,15 +946,14 @@ fn handle_client_msg(
             room.broadcast(&ServerMsg::YachtRolled { by: pid, dice, keep, first_roll: first });
             let snap = room.snapshot();
             room.broadcast(&snap);
-            spawn_yacht_timer(state.clone(), code, generation, limit);
+            spawn_yacht_timer(state.clone(), code.to_string(), generation, limit);
         }
 
         ClientMsg::YachtKeep { index } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((_, pid, room)) = g.parts() else {
                 return;
             };
             if room.game != GameKind::Yacht || room.status != RoomStatus::Playing {
@@ -987,11 +973,10 @@ fn handle_client_msg(
         }
 
         ClientMsg::YachtScore { category } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((code, pid, room)) = g.parts() else {
                 return;
             };
             if room.game != GameKind::Yacht || room.status != RoomStatus::Playing {
@@ -1028,16 +1013,15 @@ fn handle_client_msg(
                 room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
                 let snap = room.snapshot();
                 room.broadcast(&snap);
-                spawn_yacht_timer(state.clone(), code, generation, limit);
+                spawn_yacht_timer(state.clone(), code.to_string(), generation, limit);
             }
         }
 
         ClientMsg::SetColor { color } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((_, pid, room)) = g.parts() else {
                 return;
             };
             if room.status == RoomStatus::Playing {
@@ -1061,11 +1045,10 @@ fn handle_client_msg(
         }
 
         ClientMsg::KickPlayer { player_id } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((_, pid, room)) = g.parts() else {
                 return;
             };
             if room.host_id != pid {
@@ -1090,18 +1073,17 @@ fn handle_client_msg(
                 return;
             }
             // 방에서 제거 (진행 중이 아니므로 cleanup_departed가 자리 제거).
-            cleanup_departed(&mut rooms, state, &code, player_id);
+            cleanup_departed(&mut g.rooms, state, &g.code, player_id);
         }
 
         ClientMsg::FlickDraftPick { power } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
             if !crate::flick::is_valid_power(&power) {
                 return;
             }
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((code, pid, room)) = g.parts() else {
                 return;
             };
             if room.game != GameKind::Flick || room.status != RoomStatus::Playing {
@@ -1119,7 +1101,7 @@ fn handle_client_msg(
                 }
             }
             if done {
-                start_flick_first_turn(state, room, &code);
+                start_flick_first_turn(state, room, code);
             } else {
                 let snap = room.snapshot();
                 room.broadcast(&snap);
@@ -1127,11 +1109,10 @@ fn handle_client_msg(
         }
 
         ClientMsg::FlickAim { angle, power } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((code, pid, room)) = g.parts() else {
                 return;
             };
             if room.game != GameKind::Flick || room.status != RoomStatus::Playing {
@@ -1191,15 +1172,14 @@ fn handle_client_msg(
                 status: "playing".to_string(),
                 winner: None,
             });
-            spawn_flick_timer(state.clone(), code, generation, limit);
+            spawn_flick_timer(state.clone(), code.to_string(), generation, limit);
         }
 
         ClientMsg::FlickAiming { angle, power } => {
-            let Some((code, pid)) = session.clone() else {
+            let Some(mut g) = guard::open(state, session) else {
                 return;
             };
-            let mut rooms = state.rooms();
-            let Some(room) = rooms.get_mut(&code) else {
+            let Some((_, pid, room)) = g.parts() else {
                 return;
             };
             if room.game != GameKind::Flick || room.current_turn_any() != Some(pid) {
@@ -1314,63 +1294,12 @@ fn resolve_chess(state: &Arc<AppState>, room: &mut Room, code: &str) {
 
 /// (체스) 단계 투표 시간 초과 처리 타이머.
 fn spawn_chess_timer(state: Arc<AppState>, code: String, generation: u64, limit_secs: u32) {
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(limit_secs as u64)).await;
-        let mut rooms = state.rooms();
-        let Some(room) = rooms.get_mut(&code) else {
-            return;
-        };
-        if room.game != GameKind::Chess
-            || room.status != RoomStatus::Playing
-            || room.turn_generation != generation
-        {
-            return;
-        }
-        resolve_chess(&state, room, &code);
-    });
+    timer::spawn(state, code, generation, limit_secs, timer::TurnKind::Chess);
 }
 
 /// (알까기) 드래프트/차례 시간 초과 처리 타이머.
 fn spawn_flick_timer(state: Arc<AppState>, code: String, generation: u64, limit_secs: u32) {
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(limit_secs as u64)).await;
-        let mut rooms = state.rooms();
-        let Some(room) = rooms.get_mut(&code) else {
-            return;
-        };
-        if room.game != GameKind::Flick
-            || room.status != RoomStatus::Playing
-            || room.turn_generation != generation
-        {
-            return;
-        }
-        let drafting = room.flick.as_ref().map(|f| f.drafting).unwrap_or(false);
-        if drafting {
-            // 드래프트 미선택자 자동 선택 후 첫 차례 시작.
-            if let Some(f) = room.flick.as_mut() {
-                f.auto_pick_remaining();
-                f.drafting = false;
-            }
-            start_flick_first_turn(&state, room, &code);
-            return;
-        }
-        // 차례 시간 초과 → 발사 못 함, 다음 차례로.
-        let n = room.order.len();
-        if n == 0 {
-            return;
-        }
-        room.turn_idx = (room.turn_idx + 1) % n;
-        if advance_flick_turn(room).is_some() {
-            if let Some(f) = room.flick.as_mut() {
-                f.tick_items();
-            }
-            let gen = room.turn_generation;
-            let limit = room.turn_limit_secs;
-            let snap = room.snapshot();
-            room.broadcast(&snap);
-            spawn_flick_timer(state.clone(), code.clone(), gen, limit);
-        }
-    });
+    timer::spawn(state, code, generation, limit_secs, timer::TurnKind::Flick);
 }
 
 /// 입장 처리 (코드 입장/검색 입장 공용).
@@ -1716,113 +1645,19 @@ fn begin_turn(room: &mut Room) -> Option<Uuid> {
     None
 }
 
-/// 제한시간이 지나면 자동으로 다음 차례로 넘기는 타이머.
+/// 제한시간이 지나면 자동으로 다음 차례로 넘기는 타이머(오목 클래식/팀전).
 fn spawn_turn_timer(state: Arc<AppState>, code: String, generation: u64, limit_secs: u32) {
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(limit_secs as u64)).await;
-        let mut rooms = state.rooms();
-        let Some(room) = rooms.get_mut(&code) else {
-            return;
-        };
-        // 그 사이 차례가 바뀌었으면(=generation 변경) 무효.
-        if room.status != RoomStatus::Playing || room.turn_generation != generation {
-            return;
-        }
-        // 팀전: 만료 시 현재까지의 투표로 확정(없으면 스킵) 후 다음 팀.
-        if room.mode == GameMode::Team {
-            resolve_team_turn(&state, room, &code);
-            return;
-        }
-        let n = room.order.len();
-        if n == 0 {
-            return;
-        }
-        room.turn_idx = (room.turn_idx + 1) % n;
-        if let Some(next) = begin_turn(room) {
-            let deadline = room.deadline_ms.unwrap();
-            let new_gen = room.turn_generation;
-            let limit = room.turn_limit_secs;
-            room.broadcast(&ServerMsg::TurnChanged {
-                current_turn: next,
-                deadline_ms: deadline,
-                    server_now_ms: now_ms(),
-            });
-            spawn_turn_timer(state.clone(), code.clone(), new_gen, limit);
-        }
-    });
+    timer::spawn(state, code, generation, limit_secs, timer::TurnKind::Turn);
 }
 
 /// (윷놀이) 제한시간 초과 시 현재 차례를 건너뛰고 다음 사람에게.
 /// (요트) 제한시간 초과 시 현재 차례를 강제 마감하고 다음 사람에게.
 fn spawn_yacht_timer(state: Arc<AppState>, code: String, generation: u64, limit_secs: u32) {
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(limit_secs as u64)).await;
-        let mut rooms = state.rooms();
-        let Some(room) = rooms.get_mut(&code) else {
-            return;
-        };
-        if room.status != RoomStatus::Playing
-            || room.game != GameKind::Yacht
-            || room.turn_generation != generation
-        {
-            return;
-        }
-        let over;
-        {
-            let Some(y) = room.yacht.as_mut() else {
-                return;
-            };
-            y.skip_turn();
-            over = y.phase == crate::yacht::Phase::Over;
-        }
-        room.turn_idx = room.yacht.as_ref().map(|y| y.turn).unwrap_or(0);
-        room.turn_generation += 1;
-        if over {
-            room.status = RoomStatus::Finished;
-            room.winner = room.yacht.as_ref().and_then(|y| y.winner_id());
-            let snap = room.snapshot();
-            room.broadcast(&snap);
-            room.broadcast(&ServerMsg::GameOver {
-                winner: room.winner,
-                winning_team: None,
-                winning_line: Vec::new(),
-            });
-        } else {
-            let new_gen = room.turn_generation;
-            let limit = room.turn_limit_secs;
-            room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
-            let snap = room.snapshot();
-            room.broadcast(&snap);
-            spawn_yacht_timer(state.clone(), code, new_gen, limit);
-        }
-    });
+    timer::spawn(state, code, generation, limit_secs, timer::TurnKind::Yacht);
 }
 
 fn spawn_yut_timer(state: Arc<AppState>, code: String, generation: u64, limit_secs: u32) {
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(limit_secs as u64)).await;
-        let mut rooms = state.rooms();
-        let Some(room) = rooms.get_mut(&code) else {
-            return;
-        };
-        if room.status != RoomStatus::Playing
-            || room.game != GameKind::Yut
-            || room.turn_generation != generation
-        {
-            return;
-        }
-        if let Some(y) = room.yut.as_mut() {
-            y.skip_turn();
-        }
-        room.turn_idx = room.yut.as_ref().map(|y| y.turn).unwrap_or(0);
-        room.turn_generation += 1;
-        let new_gen = room.turn_generation;
-        let limit = room.turn_limit_secs;
-        room.deadline_ms = Some(now_ms() + limit as u64 * 1000);
-        let snap = room.snapshot();
-        room.broadcast(&snap);
-        spawn_yut_timer(state.clone(), code, new_gen, limit);
-    });
+    timer::spawn(state, code, generation, limit_secs, timer::TurnKind::Yut);
 }
 
 fn shuffle(mut ids: Vec<Uuid>) -> Vec<Uuid> {
