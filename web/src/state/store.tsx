@@ -8,6 +8,7 @@ import {
   useRef,
   type ReactNode,
 } from "react";
+import { STATIC_MODE } from "../config";
 import type {
   ChatLine,
   ChessPiece,
@@ -615,6 +616,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // 정적 빌드는 서버가 없으므로 연결하지 않는다.
+    if (STATIC_MODE) return;
     let stopped = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 

@@ -85,6 +85,10 @@ select:focus {
   padding: 6px 0;
   margin-bottom: 8px;
 }
+a.back {
+  display: inline-block;
+  text-decoration: none;
+}
 .subtitle {
   color: var(--muted);
 }

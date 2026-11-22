@@ -9,6 +9,7 @@ import Game from "./views/Game";
 import FlickGame from "./views/FlickGame";
 import ChessGame from "./views/ChessGame";
 import JoinLink from "./views/JoinLink";
+import { STATIC_MODE } from "./config";
 import BotSetup from "./views/BotSetup";
 import BotOmok from "./views/BotOmok";
 import BotChess from "./views/BotChess";
@@ -30,7 +31,7 @@ export default function App() {
 
   return (
     <div className="app">
-      {!state.connected && <div className="conn-banner">서버에 연결 중…</div>}
+      {!STATIC_MODE && !state.connected && <div className="conn-banner">서버에 연결 중…</div>}
       {state.error && (
         <div className="toast" onClick={clearError}>
           ⚠️ {state.error}
