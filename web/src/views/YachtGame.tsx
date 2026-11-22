@@ -112,10 +112,16 @@ export default function YachtGame() {
   }, [yacht, myId]);
 
   // 흔들기(드래그) → 놓으면 굴림 요청.
+  const ndc = (e: React.PointerEvent): [number, number] => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1];
+  };
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!isMyTurn || (yacht?.rollsLeft ?? 0) <= 0 || animatingRef.current) return;
       if (yacht) sceneRef.current?.loadCup(yacht.dice, yacht.keep, !yacht.rolled); // 던질 주사위를 컵 안으로
+      sceneRef.current?.grabCup(...ndc(e)); // 컵을 들어 포인터를 따라오게
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
       shakeRef.current = { active: true, lastX: e.clientX, lastY: e.clientY };
     },
     [isMyTurn, yacht],
@@ -126,12 +132,14 @@ export default function YachtGame() {
     const d = Math.hypot(e.clientX - sh.lastX, e.clientY - sh.lastY);
     sh.lastX = e.clientX;
     sh.lastY = e.clientY;
-    sceneRef.current?.setShake(Math.min(1, d / 22));
+    void d;
+    sceneRef.current?.dragCup(...ndc(e)); // 컵이 포인터를 따라 움직이며 흔들린다
   }, []);
   const onPointerUp = useCallback(() => {
     const sh = shakeRef.current;
     if (!sh.active) return;
     sh.active = false;
+    sceneRef.current?.releaseCup();
     if (isMyTurn && (yacht?.rollsLeft ?? 0) > 0 && !animatingRef.current) {
       send({ type: "YachtRoll" });
     }
@@ -272,7 +280,7 @@ export default function YachtGame() {
                   ? yacht.rollsLeft > 0
                     ? "킵할 주사위를 고르고 컵을 다시 흔들거나, 점수판에서 칸을 고르세요"
                     : "점수판에서 기록할 칸을 고르세요"
-                  : "🥤 마우스로 컵을 잡고 흔든 뒤 놓으세요"}
+                  : "🥤 컵을 잡고 이리저리 흔들고 돌린 뒤 놓으세요"}
             </div>
           )}
         </div>

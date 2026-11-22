@@ -2,10 +2,23 @@
 // 쏟아져 텀블 후 서버/엔진이 정한 눈으로 안착. 킵된 주사위는 제자리, 리롤만 다시 던진다.
 
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 const DIE = 0.92; // 주사위 한 변
-const SPOTS_Z = 1.4; // 주사위가 놓이는 줄의 z
-const CUP = { x: 0, y: 0, z: 5.2 }; // 컵 위치(앞쪽)
+const SPOTS_Z = 1.2; // 주사위가 놓이는 줄의 z
+const SPOTS_X = -0.9; // 주사위 줄 중심 x(컵이 가리지 않게 왼쪽으로)
+const CUP = { x: 3.6, y: 0, z: 4.0 }; // 컵 위치(오른쪽 앞, 주사위 줄을 가리지 않게)
+const CUP_R_TOP = 1.55; // 컵 입구 반지름
+const CUP_R_BOT = 1.35; // 컵 바닥 반지름
+const CUP_H = 2.3; // 컵 높이
+// 컵 안 주사위 배치(아래 3개 삼각형 + 위 2개). 서로·벽과 겹치지 않게 고정 슬롯을 쓴다.
+const CUP_SLOTS: [number, number, number][] = [
+  [0, DIE / 2 + 0.06, -0.58],
+  [-0.52, DIE / 2 + 0.06, 0.32],
+  [0.52, DIE / 2 + 0.06, 0.32],
+  [-0.3, DIE * 1.5 + 0.1, -0.05],
+  [0.36, DIE * 1.5 + 0.1, 0.12],
+];
 
 // value(1~6)를 윗면으로 만드는 오일러 회전.
 const TOP_EULER: Record<number, [number, number, number]> = {
@@ -42,6 +55,16 @@ export class YachtScene {
   private cup: THREE.Group;
   private shakeLevel = 0;
   private throwAnim: ThrowAnim | null = null;
+  private tmp = new THREE.Vector3();
+  // 컵 잡기·끌기 상태. base = 지터를 뺀 컵 위치, vel = 컵 속도(월드).
+  private held = false;
+  private cupTarget = new THREE.Vector3(CUP.x, 0, CUP.z);
+  private cupBase = new THREE.Vector3(CUP.x, 0, CUP.z);
+  private cupVel = new THREE.Vector3();
+  private cupSpin = 0; // 컵 자체 회전(돌리면 안의 주사위도 함께 돈다)
+  private throwYaw = 0;
+  private raycaster = new THREE.Raycaster();
+  private tablePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -52,11 +75,11 @@ export class YachtScene {
     this.renderer.toneMappingExposure = 1.15;
 
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x12111a, 14, 30);
+    this.scene.fog = new THREE.Fog(0x12111a, 20, 42);
 
-    this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 100);
-    this.camera.position.set(0, 8.5, 9.5);
-    this.camera.lookAt(0, 0, 1.2);
+    this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+    this.camera.position.set(0.6, 10.5, 10.5);
+    this.camera.lookAt(0.6, 0, 2.4);
 
     this.buildLights();
     this.buildTable();
@@ -77,40 +100,72 @@ export class YachtScene {
     key.shadow.camera.right = d;
     key.shadow.camera.top = d;
     key.shadow.camera.bottom = -d;
-    key.shadow.bias = -0.0005;
+    key.shadow.bias = -0.0002;
+    key.shadow.normalBias = 0.03;
     this.scene.add(key);
   }
 
   private buildTable() {
+    const W = 14, D = 12, Z = 2.0; // 펠트 크기와 중심 z
     const felt = new THREE.Mesh(
-      new THREE.BoxGeometry(14, 0.4, 13),
+      new THREE.BoxGeometry(W, 0.4, D),
       new THREE.MeshStandardMaterial({ color: 0x1f6b46, roughness: 0.95 }),
     );
-    felt.position.set(0, -0.2, 1.5);
+    felt.position.set(0, -0.2, Z); // 윗면 y=0
     felt.receiveShadow = true;
     this.scene.add(felt);
-    // 가장자리 테두리.
-    const rim = new THREE.Mesh(
-      new THREE.BoxGeometry(14.6, 0.7, 13.6),
-      new THREE.MeshStandardMaterial({ color: 0x4a2f1c, roughness: 0.8 }),
-    );
-    rim.position.set(0, -0.35, 1.5);
-    rim.receiveShadow = true;
-    this.scene.add(rim);
+    // 가장자리 나무 테두리: 펠트를 감싸는 네 개의 막대(펠트 윗면과 겹치지 않게 위로 올림).
+    const wood = new THREE.MeshStandardMaterial({ color: 0x5a3820, roughness: 0.7 });
+    const T = 0.45, H = 0.75; // 두께, 높이(펠트 아래 0.45 ~ 위 0.3)
+    const bars: [number, number, number, number][] = [
+      [W + T * 2, T, 0, Z - D / 2 - T / 2],
+      [W + T * 2, T, 0, Z + D / 2 + T / 2],
+      [T, D, -W / 2 - T / 2, Z],
+      [T, D, W / 2 + T / 2, Z],
+    ];
+    for (const [w, d, x, z] of bars) {
+      const m = new RoundedBoxGeometry(w, H, d, 2, 0.08);
+      const bar = new THREE.Mesh(m, wood);
+      bar.position.set(x, H / 2 - 0.45, z);
+      bar.castShadow = true;
+      bar.receiveShadow = true;
+      this.scene.add(bar);
+    }
   }
 
   private buildCup(): THREE.Group {
     const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x8a3b2a, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide });
-    const side = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 0.85, 2.0, 28, 1, true), mat);
-    side.position.y = 1.0;
-    side.castShadow = true;
-    g.add(side);
-    const bottom = new THREE.Mesh(new THREE.CircleGeometry(0.85, 28), mat);
-    bottom.rotation.x = -Math.PI / 2;
-    bottom.position.y = 0.02;
-    g.add(bottom);
+    const outer = new THREE.MeshStandardMaterial({ color: 0x8a3b2a, roughness: 0.45, metalness: 0.05 });
+    const inner = new THREE.MeshStandardMaterial({ color: 0x7a3526, roughness: 0.9, side: THREE.BackSide });
+    const T = 0.08; // 벽 두께
+    // 바깥 벽(앞면만)과 안쪽 벽(뒷면만)을 따로 그려 벽에 두께가 보이게 한다.
+    const outerWall = new THREE.Mesh(new THREE.CylinderGeometry(CUP_R_TOP + T, CUP_R_BOT + T, CUP_H, 40, 1, true), outer);
+    outerWall.position.y = CUP_H / 2;
+    outerWall.castShadow = true;
+    g.add(outerWall);
+    const innerWall = new THREE.Mesh(new THREE.CylinderGeometry(CUP_R_TOP, CUP_R_BOT, CUP_H, 40, 1, true), inner);
+    innerWall.position.y = CUP_H / 2;
+    g.add(innerWall);
+    // 입구 테두리(링)와 바닥.
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(CUP_R_TOP + T / 2, T * 0.75, 10, 48), outer);
+    lip.rotation.x = Math.PI / 2;
+    lip.position.y = CUP_H;
+    lip.castShadow = true;
+    g.add(lip);
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(CUP_R_BOT + T, CUP_R_BOT + T, 0.08, 40), outer);
+    base.position.y = 0.04;
+    base.receiveShadow = true;
+    g.add(base);
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(CUP_R_BOT, 40),
+      new THREE.MeshStandardMaterial({ color: 0x5c2a1e, roughness: 1 }),
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = 0.081;
+    floor.receiveShadow = true;
+    g.add(floor);
     g.position.set(CUP.x, 0, CUP.z);
+    g.rotation.order = "YXZ"; // 회전(yaw) 뒤에 기울기를 컵 기준으로 적용
     return g;
   }
 
@@ -119,10 +174,10 @@ export class YachtScene {
       (v) => new THREE.MeshStandardMaterial({ map: pipTexture(v), roughness: 0.4 }),
     );
     for (let i = 0; i < 5; i++) {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(DIE, DIE, DIE), mats.map((m) => m.clone()));
+      const mesh = new THREE.Mesh(new RoundedBoxGeometry(DIE, DIE, DIE, 4, DIE * 0.12), mats);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      const spot = new THREE.Vector3((i - 2) * 1.25, DIE / 2, SPOTS_Z);
+      const spot = new THREE.Vector3(SPOTS_X + (i - 2) * 1.25, DIE / 2, SPOTS_Z);
       mesh.position.copy(spot);
       this.setTop(mesh, 1, 0);
       this.scene.add(mesh);
@@ -130,11 +185,15 @@ export class YachtScene {
     }
   }
 
-  // 컵 내부 무작위 위치(컵 원점 기준).
-  private randCupOff(): THREE.Vector3 {
-    const ang = Math.random() * Math.PI * 2;
-    const rad = Math.random() * 0.4;
-    return new THREE.Vector3(Math.cos(ang) * rad, 0.55 + Math.random() * 0.5, 0.2 + Math.sin(ang) * rad);
+  // 컵 안 슬롯을 섞어 배정(겹치지 않는 고정 위치 + 약간의 흔들림).
+  private assignCupSlots(idx: number[]) {
+    const order = [...CUP_SLOTS.keys()].sort(() => Math.random() - 0.5);
+    // 던질 개수가 적으면 아래층부터 채운다.
+    order.sort((a, b) => CUP_SLOTS[a][1] - CUP_SLOTS[b][1]);
+    idx.forEach((di, k) => {
+      const [x, y, z] = CUP_SLOTS[order[k]];
+      this.dice[di].cupOff.set(x + (Math.random() - 0.5) * 0.08, y, z + (Math.random() - 0.5) * 0.08);
+    });
   }
 
   // 주사위 mesh를 value가 윗면이 되도록 회전(+추가 yaw).
@@ -158,10 +217,14 @@ export class YachtScene {
 
   // 굴리기 전: 던질 주사위(!keep, firstRoll이면 전부)를 컵 안에 넣는다. 킵된 건 테이블.
   loadCup(values: number[], keep: boolean[], firstRoll: boolean) {
+    const toCup: number[] = [];
+    this.dice.forEach((_, i) => {
+      if (firstRoll || !keep[i]) toCup.push(i);
+    });
+    this.assignCupSlots(toCup);
     this.dice.forEach((d, i) => {
       if (firstRoll || !keep[i]) {
         d.inCup = true;
-        d.cupOff = this.randCupOff();
         this.setTop(d.mesh, values[i] || 1, Math.random() * Math.PI);
       } else {
         d.inCup = false;
@@ -170,6 +233,35 @@ export class YachtScene {
         this.setTop(d.mesh, values[i] || 1, 0);
       }
     });
+  }
+
+  // 화면 정규화 좌표(nx,ny ∈ [-1,1])를 테이블 위 점으로. 컵이 펠트 밖으로 나가지 않게 제한.
+  private toTable(nx: number, ny: number): THREE.Vector3 | null {
+    this.raycaster.setFromCamera(new THREE.Vector2(nx, ny), this.camera);
+    const hit = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(this.tablePlane, hit)) return null;
+    hit.x = Math.max(-5.2, Math.min(5.2, hit.x));
+    hit.z = Math.max(-2.2, Math.min(6.4, hit.z));
+    hit.y = 0;
+    return hit;
+  }
+
+  // 컵 잡기: 들어 올려 포인터를 따라오게 한다.
+  grabCup(nx: number, ny: number) {
+    this.held = true;
+    const p = this.toTable(nx, ny);
+    // 잡은 지점이 컵과 멀면 컵이 그쪽으로 스르륵 따라온다.
+    this.cupTarget.copy(p ?? this.cupBase);
+  }
+
+  dragCup(nx: number, ny: number) {
+    if (!this.held) return;
+    const p = this.toTable(nx, ny);
+    if (p) this.cupTarget.copy(p);
+  }
+
+  releaseCup() {
+    this.held = false;
   }
 
   setShake(level: number) {
@@ -192,7 +284,7 @@ export class YachtScene {
       // 컵 안에 있던 주사위는 그 자리에서, 아니면 컵 입구에서 쏟아진다.
       const from = wasInCup
         ? d.mesh.position.clone()
-        : new THREE.Vector3(CUP.x + (Math.random() - 0.5) * 0.6, 1.4, CUP.z);
+        : new THREE.Vector3(this.cupBase.x + (Math.random() - 0.5) * 0.6, this.cupBase.y + 1.4, this.cupBase.z);
       items.push({
         die: d,
         from,
@@ -208,6 +300,9 @@ export class YachtScene {
         resolve();
         return;
       }
+      // 컵은 주사위 줄 쪽으로 기울여 쏟는다.
+      this.throwYaw = Math.atan2(SPOTS_X - this.cupBase.x, SPOTS_Z - this.cupBase.z);
+      this.cupSpin = this.throwYaw;
       this.throwAnim = { items, t: 0, dur: 1.0, onDone: resolve };
     });
   }
@@ -223,17 +318,49 @@ export class YachtScene {
 
   private update(dt: number) {
     const t = this.clock.elapsedTime;
-    // 컵 흔들기(드래그 세기에 비례한 지터). shakeLevel은 서서히 감쇠.
-    if (this.shakeLevel > 0.001) {
-      const a = this.shakeLevel;
-      this.cup.position.x = CUP.x + Math.sin(t * 40) * 0.35 * a;
-      this.cup.position.z = CUP.z + Math.cos(t * 33) * 0.25 * a;
-      this.cup.rotation.z = Math.sin(t * 46) * 0.25 * a;
-      this.cup.rotation.x = Math.cos(t * 38) * 0.18 * a;
-      this.shakeLevel = Math.max(0, this.shakeLevel - dt * 1.8);
+    // ① 컵 목표 위치: 잡고 있으면 포인터를 따라 들어 올리고, 아니면 제자리로(주사위 위를 넘어서) 돌아온다.
+    const sdt = Math.max(dt, 1e-3);
+    if (this.held) {
+      this.cupTarget.y = 1.5;
+    } else if (!this.throwAnim) {
+      const far = Math.hypot(this.cupBase.x - CUP.x, this.cupBase.z - CUP.z);
+      this.cupTarget.set(CUP.x, far > 0.35 ? 1.3 : 0, CUP.z);
+    }
+    if (!this.throwAnim) {
+      const prev = this.tmp.copy(this.cupBase);
+      const follow = 1 - Math.exp(-dt * (this.held ? 16 : 7));
+      this.cupBase.lerp(this.cupTarget, follow);
+      const v = prev.subVectors(this.cupBase, prev).divideScalar(sdt);
+      this.cupVel.lerp(v, 0.35);
     } else {
-      this.cup.position.set(CUP.x, 0, CUP.z);
-      this.cup.rotation.set(0, 0, 0);
+      this.cupVel.multiplyScalar(0.8);
+    }
+
+    // ② 흔들기: 움직이는 속도가 곧 흔들림 세기. 움직인 만큼 컵이 돌아 안의 주사위가 소용돌이친다.
+    const speed = Math.hypot(this.cupVel.x, this.cupVel.z);
+    if (this.held) {
+      this.setShake(Math.min(1, speed / 9));
+      this.cupSpin += speed * dt * 0.45;
+    }
+    const a = this.shakeLevel;
+    this.shakeLevel = Math.max(0, this.shakeLevel - dt * 1.8);
+    this.cup.position.set(
+      this.cupBase.x + Math.sin(t * 40) * 0.12 * a,
+      this.cupBase.y + Math.abs(Math.sin(t * 31)) * 0.1 * a,
+      this.cupBase.z + Math.cos(t * 33) * 0.1 * a,
+    );
+
+    // ③ 기울기: 움직이는 방향으로 입구가 기운다(컵 좌표계 기준).
+    if (!this.throwAnim) {
+      const cy = Math.cos(this.cupSpin), sy = Math.sin(this.cupSpin);
+      const lx = this.cupVel.x * cy - this.cupVel.z * sy;
+      const lz = this.cupVel.x * sy + this.cupVel.z * cy;
+      const clamp = (v: number) => Math.max(-0.4, Math.min(0.4, v));
+      this.cup.rotation.set(
+        clamp(lz * 0.04) + Math.cos(t * 38) * 0.1 * a,
+        this.cupSpin,
+        clamp(-lx * 0.04) + Math.sin(t * 46) * 0.12 * a,
+      );
     }
 
     // 컵 안 주사위: 컵을 따라 움직이고, 흔들면 달그락거린다.
@@ -241,14 +368,13 @@ export class YachtScene {
       const sh = this.shakeLevel;
       for (const d of this.dice) {
         if (!d.inCup) continue;
-        const jx = Math.sin(t * 38 + d.rPhase) * 0.18 * sh;
-        const jy = Math.abs(Math.sin(t * 30 + d.rPhase)) * 0.22 * sh;
-        const jz = Math.cos(t * 34 + d.rPhase * 1.3) * 0.16 * sh;
-        d.mesh.position.set(
-          this.cup.position.x + d.cupOff.x + jx,
-          this.cup.position.y + d.cupOff.y + jy,
-          this.cup.position.z + d.cupOff.z + jz,
-        );
+        const jx = Math.sin(t * 38 + d.rPhase) * 0.07 * sh;
+        const jy = Math.abs(Math.sin(t * 30 + d.rPhase)) * 0.16 * sh;
+        const jz = Math.cos(t * 34 + d.rPhase * 1.3) * 0.07 * sh;
+        // 컵이 기울어도 주사위가 컵을 따라가도록 컵 좌표계에서 월드로 변환.
+        this.tmp.set(d.cupOff.x + jx, d.cupOff.y + jy, d.cupOff.z + jz);
+        this.cup.updateMatrixWorld();
+        d.mesh.position.copy(this.tmp.applyMatrix4(this.cup.matrixWorld));
         if (sh > 0.02) {
           d.mesh.rotation.x += (4 + d.rPhase) * sh * dt;
           d.mesh.rotation.z += (3 + d.rPhase * 0.7) * sh * dt;
@@ -260,8 +386,9 @@ export class YachtScene {
       const ta = this.throwAnim;
       ta.t += dt;
       const k = Math.min(1, ta.t / ta.dur);
-      // 컵을 살짝 엎는 연출.
-      this.cup.rotation.x = -Math.min(1, k * 2) * 0.9;
+      // 컵을 주사위 쪽으로 엎었다가(앞 절반) 다시 세운다(뒤 절반).
+      const tip = k < 0.5 ? Math.sin((k / 0.5) * Math.PI * 0.5) : Math.cos(((k - 0.5) / 0.5) * Math.PI * 0.5);
+      this.cup.rotation.set(tip * 1.25, this.throwYaw, 0);
       for (const it of ta.items) {
         const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
         const pos = it.from.clone().lerp(it.to, e);
@@ -277,7 +404,7 @@ export class YachtScene {
         }
       }
       if (k >= 1) {
-        this.cup.rotation.set(0, 0, 0);
+        this.cup.rotation.set(0, this.throwYaw, 0);
         const done = ta.onDone;
         this.throwAnim = null;
         done();
@@ -311,18 +438,16 @@ const pipCache = new Map<number, THREE.CanvasTexture>();
 function pipTexture(value: number): THREE.CanvasTexture {
   const cached = pipCache.get(value);
   if (cached) return cached;
-  const S = 128;
+  const S = 256;
   const cv = document.createElement("canvas");
   cv.width = cv.height = S;
   const ctx = cv.getContext("2d")!;
-  ctx.fillStyle = "#f4efe6";
-  if (ctx.roundRect) {
-    ctx.beginPath();
-    ctx.roundRect(4, 4, S - 8, S - 8, 22);
-    ctx.fill();
-  } else {
-    ctx.fillRect(4, 4, S - 8, S - 8);
-  }
+  // 면 전체를 채운다(모서리를 투명하게 두면 검게 보임). 가장자리만 살짝 어둡게.
+  const grad = ctx.createRadialGradient(S / 2, S / 2, S * 0.3, S / 2, S / 2, S * 0.75);
+  grad.addColorStop(0, "#f7f2e9");
+  grad.addColorStop(1, "#e4ddd0");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, S, S);
   const lo = S * 0.27,
     mid = S * 0.5,
     hi = S * 0.73,
@@ -343,6 +468,7 @@ function pipTexture(value: number): THREE.CanvasTexture {
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
   pipCache.set(value, tex);
   return tex;
 }

@@ -88,10 +88,16 @@ export default function BotYacht() {
   );
 
   // 사람: 컵 흔들기(드래그) → 놓으면 던지기.
+  const ndc = (e: React.PointerEvent): [number, number] => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return [((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1];
+  };
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!isHuman || st.rollsLeft <= 0 || animatingRef.current) return;
       sceneRef.current?.loadCup(st.dice, st.keep, !st.rolled); // 던질 주사위를 컵 안으로
+      sceneRef.current?.grabCup(...ndc(e)); // 컵을 들어 포인터를 따라오게
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
       shakeRef.current = { active: true, lastX: e.clientX, lastY: e.clientY, dist: 0 };
     },
     [isHuman, st.rollsLeft, st.dice, st.keep, st.rolled],
@@ -105,12 +111,13 @@ export default function BotYacht() {
     sh.dist += d;
     sh.lastX = e.clientX;
     sh.lastY = e.clientY;
-    sceneRef.current?.setShake(Math.min(1, d / 22)); // 드래그 속도 → 흔들림 세기
+    sceneRef.current?.dragCup(...ndc(e)); // 컵이 포인터를 따라 움직이며 흔들린다
   }, []);
   const onPointerUp = useCallback(() => {
     const sh = shakeRef.current;
     if (!sh.active) return;
     sh.active = false;
+    sceneRef.current?.releaseCup();
     void doRoll(st, st.keep);
   }, [doRoll, st]);
 
@@ -275,7 +282,7 @@ export default function BotYacht() {
           {/* 흔들기 안내 */}
           {!over && isHuman && st.rollsLeft > 0 && (
             <div style={{ position: "absolute", top: 12, left: 0, right: 0, textAlign: "center", pointerEvents: "none", color: "#cfe0f0", fontSize: 14, textShadow: "0 2px 6px #000" }}>
-              {st.rolled ? "킵할 주사위를 고르고, 컵을 다시 흔들어 던지세요" : "🥤 마우스로 컵을 잡고 흔든 뒤 놓으세요"}
+              {st.rolled ? "킵할 주사위를 고르고, 컵을 다시 잡고 흔들어 던지세요" : "🥤 컵을 잡고 이리저리 흔들고 돌린 뒤 놓으세요"}
             </div>
           )}
           {!over && !isHuman && (
