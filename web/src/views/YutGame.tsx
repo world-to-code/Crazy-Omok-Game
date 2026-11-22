@@ -387,7 +387,7 @@ export default function YutGame() {
                   {turnZ?.emoji} {turnPlayer?.nickname ?? ""} 차례를 기다리는 중…
                 </div>
               ) : yut.phase === "throw" ? (
-                <PowerThrowButton onThrow={(power) => send({ type: "YutThrow", power })} />
+                <PowerThrowButton onThrow={(power) => send({ type: "YutThrow", power })} onCharge={(p) => sceneRef.current?.chargeYut(p)} />
               ) : (
                 <div style={{ padding: "9px 18px", borderRadius: 12, background: "rgba(20,14,22,.82)", color: "#f0d9a0", fontSize: 14 }}>
                   {selectableIds.length === 0

@@ -3,9 +3,11 @@ import { useCallback, useRef, useState } from "react";
 // 윷 던지기 세기 게이지: 버튼을 누르고 있으면 게이지가 차오르고, 떼는 순간의 세기로 던진다.
 export default function PowerThrowButton({
   onThrow,
+  onCharge,
   disabled,
 }: {
   onThrow: (power: number) => void;
+  onCharge?: (power: number) => void; // 누르는 동안 세기(장면에서 윷을 모으고 떨게 하는 데 씀)
   disabled?: boolean;
 }) {
   const [power, setPower] = useState(0);
@@ -22,10 +24,11 @@ export default function PowerThrowButton({
       const p = Math.min(1, (performance.now() - start.current) / 900); // 0.9초에 만충
       cur.current = p;
       setPower(p);
+      onCharge?.(Math.max(0.05, p));
       if (p < 1) raf.current = requestAnimationFrame(loop);
     };
     raf.current = requestAnimationFrame(loop);
-  }, [disabled]);
+  }, [disabled, onCharge]);
 
   const release = useCallback(() => {
     if (!charging) return;
@@ -35,7 +38,8 @@ export default function PowerThrowButton({
     cur.current = 0;
     setPower(0);
     onThrow(p);
-  }, [charging, onThrow]);
+    onCharge?.(0);
+  }, [charging, onThrow, onCharge]);
 
   // 게이지 색: 약함(초록) → 강함(빨강).
   const hue = 120 - power * 120;

@@ -377,7 +377,7 @@ export default function BotYut() {
                   {botZ.emoji} 봇이 두는 중…
                 </div>
               ) : st.phase === "throw" ? (
-                <PowerThrowButton onThrow={humanThrow} />
+                <PowerThrowButton onThrow={humanThrow} onCharge={(p) => sceneRef.current?.chargeYut(p)} />
               ) : (
                 <div style={{ padding: "9px 18px", borderRadius: 12, background: "rgba(20,14,22,.82)", color: "#f0d9a0", fontSize: 14 }}>
                   {selectableIds.length === 0
